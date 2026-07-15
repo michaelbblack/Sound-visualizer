@@ -1,0 +1,182 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: #e8e8e8;
+}
+
+#viz-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: default;
+}
+
+/* ---------- Start overlay ---------- */
+
+#start-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, #101025 0%, #000 75%);
+  z-index: 20;
+}
+
+.start-box {
+  text-align: center;
+  padding: 2rem;
+  max-width: 34rem;
+}
+
+.start-box h1 {
+  font-size: 2.2rem;
+  letter-spacing: 0.35em;
+  background: linear-gradient(90deg, #00ffcc, #6a5cff, #ff2fb9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin-bottom: 0.8rem;
+}
+
+.start-box p {
+  color: #9aa;
+  margin-bottom: 1.6rem;
+}
+
+.big-btn {
+  display: block;
+  width: 100%;
+  margin: 0 auto 0.9rem;
+  padding: 0.9rem 1.5rem;
+  font-size: 1.05rem;
+  border: 1px solid #3affd0;
+  border-radius: 8px;
+  background: rgba(0, 255, 204, 0.08);
+  color: #3affd0;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.big-btn:hover {
+  background: rgba(0, 255, 204, 0.2);
+  transform: translateY(-1px);
+}
+
+.big-btn.secondary {
+  border-color: #6a5cff;
+  color: #a99cff;
+  background: rgba(106, 92, 255, 0.08);
+}
+
+.big-btn.secondary:hover {
+  background: rgba(106, 92, 255, 0.2);
+}
+
+.hint {
+  font-size: 0.8rem;
+  color: #667 !important;
+}
+
+.error {
+  color: #ff5c7a !important;
+  font-size: 0.9rem;
+}
+
+/* ---------- Control bar ---------- */
+
+#controls {
+  position: fixed;
+  left: 50%;
+  bottom: 1.2rem;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.9rem;
+  background: rgba(10, 10, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  transition: opacity 0.4s;
+}
+
+#controls.faded {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#controls button {
+  padding: 0.4rem 0.7rem;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #ddd;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+#controls button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+#viz-select {
+  padding: 0.4rem 0.5rem;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #eee;
+  font-size: 0.9rem;
+  min-width: 13rem;
+}
+
+.slider-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: #aab;
+}
+
+#sensitivity {
+  width: 7rem;
+  accent-color: #3affd0;
+}
+
+/* ---------- Viz title flash ---------- */
+
+#viz-title {
+  position: fixed;
+  top: 8%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.6rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 0 18px rgba(0, 255, 204, 0.9);
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+
+#viz-title.show {
+  opacity: 1;
+}
+
+.hidden {
+  display: none !important;
+}

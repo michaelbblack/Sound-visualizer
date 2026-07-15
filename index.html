@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sound Visualizer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#127925;</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="viz-canvas"></canvas>
+
+  <!-- Start overlay: browsers require a user gesture before mic/audio can start -->
+  <div id="start-overlay">
+    <div class="start-box">
+      <h1>SOUND VISUALIZER</h1>
+      <p>Winamp-style visualizations driven by your microphone.</p>
+      <button id="start-mic" class="big-btn">&#127908; Start with Microphone</button>
+      <button id="start-demo" class="big-btn secondary">&#127925; Demo Mode (synth beat, no mic)</button>
+      <p class="hint">F = fullscreen &nbsp;&bull;&nbsp; &larr;/&rarr; = switch visualization &nbsp;&bull;&nbsp; H = hide controls</p>
+      <p id="start-error" class="error hidden"></p>
+    </div>
+  </div>
+
+  <!-- Control bar (auto-hides when idle) -->
+  <div id="controls" class="hidden">
+    <button id="prev-viz" title="Previous (Left arrow)">&#9664;</button>
+    <select id="viz-select"></select>
+    <button id="next-viz" title="Next (Right arrow)">&#9654;</button>
+    <label class="slider-label">
+      Sensitivity
+      <input type="range" id="sensitivity" min="0.3" max="3" step="0.05" value="1">
+    </label>
+    <button id="fullscreen-btn" title="Fullscreen (F)">&#x26F6; Fullscreen</button>
+  </div>
+
+  <!-- Brief title flash when switching visualizations -->
+  <div id="viz-title" class="hidden"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
