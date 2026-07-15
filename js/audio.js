@@ -6,10 +6,23 @@
  *   wave          Uint8Array   time-domain waveform (0-255, 128 = silence)
  *   bass/mid/treb number 0..1  smoothed band energies
  *   level         number 0..1  smoothed overall loudness
- *   beat          boolean      true on the frame a beat is detected
+ *   beat          boolean      true on the frame a beat fires
  *   beatPulse     number 0..1  spikes to 1 on a beat, decays quickly
  *   beatPhase     number 0..1  position within the current beat interval
  *   beatInterval  number sec   estimated time between beats (tempo)
+ *   bpm           number       tempo estimate (0 until confident)
+ *   bpmConfidence number 0..1  strength of the tempo estimate
+ *   musicActive   boolean      false when the sound has stopped
+ *
+ * Tempo strategy: rather than relying on catching individual beat events
+ * (fragile with real microphones, where room acoustics smear transients),
+ * a continuous ONSET-STRENGTH ENVELOPE (spectral flux per frame) is recorded
+ * and periodically AUTOCORRELATED to find the dominant periodicity — the
+ * tempo emerges from all 8 seconds of evidence at once. Once locked, a
+ * phase-aligned metronome predicts beats on that grid (re-aligned against
+ * the envelope every 2s), so visuals get perfectly regular beats even when
+ * individual kicks are barely detectable. Before lock (or if lock is lost),
+ * a discrete spectral-flux detector provides beats directly.
  */
 export class AudioEngine {
   constructor() {
@@ -30,14 +43,19 @@ export class AudioEngine {
     this.beat = false;
     this.beatPulse = 0;
     this.beatPhase = 0;
-    this.beatInterval = 0.5; // 120 BPM default until we've measured
-    this.bpm = 0;            // 0 until the tempo estimator is confident
-    this.bpmConfidence = 0;  // 0..1, fraction of recent intervals agreeing
+    this.beatInterval = 0.5; // 120 BPM default until measured
+    this.bpm = 0;
+    this.bpmConfidence = 0;
+    this.tempoLocked = false;
+    this.musicActive = false;
+
     this._lastBeatTime = 0;
-    this._onsets = [];
+    this._nextBeat = 0;
     this._lastTempoRun = 0;
-    this._prevLow = null;
+    this._prevSpec = null;
     this._fluxHistory = [];
+    this._envT = []; // onset-strength envelope: times…
+    this._envV = []; // …and values, spanning the last ~8s
     this._lastFrameTime = 0;
 
     this.mode = null; // 'mic' | 'demo'
@@ -143,7 +161,7 @@ export class AudioEngine {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.65; // low enough that beat attacks stay sharp
+    this.analyser.smoothingTimeConstant = 0.65; // low enough that attacks stay sharp
     this.input = this.ctx.createGain();
     this.input.connect(this.analyser);
     this.freq = new Uint8Array(this.analyser.frequencyBinCount);
@@ -170,10 +188,25 @@ export class AudioEngine {
     this.treb = this._smooth(this.treb, this._bandLevel(0.25, 0.8), dt);
     this.level = this._smooth(this.level, this._bandLevel(0, 0.8), dt);
 
-    this._detectBeat(now, dt);
+    // Onset-strength envelope sample for this frame
+    const flux = this._spectralFlux();
+    this._envT.push(now);
+    this._envV.push(flux.full);
+    while (this._envT.length && now - this._envT[0] > 8) {
+      this._envT.shift();
+      this._envV.shift();
+    }
+    this._updateMusicActive(now);
+
+    if (this.tempoLocked && this.musicActive) {
+      this._metronome(now, dt);
+    } else {
+      this._detectBeat(now, dt, flux.low);
+    }
+
     if (now - this._lastTempoRun > 2) {
       this._lastTempoRun = now;
-      this._estimateTempo(now);
+      this._analyzeTempo(now);
     }
   }
 
@@ -220,27 +253,50 @@ export class AudioEngine {
   }
 
   /**
-   * Spectral-flux beat detection: sums the frame-to-frame INCREASE in each
-   * low-frequency bin. Sustained bass (a drone, a bassline held under the
-   * whole track) contributes nothing, while a kick's attack spikes the flux —
-   * so this works even when the bass band's absolute level never dips.
-   * A beat fires when flux exceeds the rolling average, with a refractory
-   * period; onset times feed the tempo estimator.
+   * Spectral flux = per-bin frame-to-frame INCREASE in energy. Sustained
+   * tones contribute nothing; attacks spike it. `low` covers the kick range
+   * (for the discrete detector); `full` covers 0-6kHz (for the envelope, so
+   * beats carried by snares/hats through small speakers still count).
    */
-  _detectBeat(now, dt) {
-    const bins = Math.floor(this.freq.length * 0.1); // ~0-1.2kHz: kick + low percussion
-    let flux = 0;
-    if (this._prevLow) {
-      for (let i = 0; i < bins; i++) {
-        const d = this.freq[i] - this._prevLow[i];
-        if (d > 0) flux += d;
+  _spectralFlux() {
+    const n = Math.floor(this.freq.length * 0.25);
+    const lowN = Math.floor(this.freq.length * 0.1);
+    let full = 0;
+    let low = 0;
+    if (this._prevSpec) {
+      for (let i = 0; i < n; i++) {
+        const d = this.freq[i] - this._prevSpec[i];
+        if (d > 0) {
+          full += d;
+          if (i < lowN) low += d;
+        }
       }
-      flux /= bins * 255;
+      full /= n * 255;
+      low /= lowN * 255;
     } else {
-      this._prevLow = new Uint8Array(bins);
+      this._prevSpec = new Uint8Array(n);
     }
-    this._prevLow.set(this.freq.subarray(0, bins));
+    this._prevSpec.set(this.freq.subarray(0, n));
+    return { full, low };
+  }
 
+  /** Music is "active" when the recent envelope shows real onsets and level. */
+  _updateMusicActive(now) {
+    let sum = 0;
+    let count = 0;
+    for (let i = this._envT.length - 1; i >= 0 && now - this._envT[i] < 1.2; i--) {
+      sum += this._envV[i];
+      count++;
+    }
+    const recent = count ? sum / count : 0;
+    this.musicActive = recent > 0.003 && this.rms > 0.02;
+  }
+
+  /**
+   * Discrete beat detection (used before tempo lock): fires when low-band
+   * flux exceeds its rolling average, with a refractory period.
+   */
+  _detectBeat(now, dt, flux) {
     this._fluxHistory.push(flux);
     if (this._fluxHistory.length > 43) this._fluxHistory.shift(); // ~0.7s at 60fps
 
@@ -249,16 +305,15 @@ export class AudioEngine {
 
     this.beat = false;
     if (
-      flux > 0.01 &&
-      flux > avg * 1.5 + 0.005 &&
+      flux > 0.008 &&
+      flux > avg * 1.5 + 0.004 &&
       now - this._lastBeatTime > minGap
     ) {
       this.beat = true;
       this.beatPulse = 1;
-      this._onsets.push(now);
-      // Until the tempo estimator is confident, track gaps directly
+      // Rough tempo from beat gaps until the autocorrelation lock takes over
       const gap = now - this._lastBeatTime;
-      if (this.bpmConfidence < 0.2 && gap > 0.3 && gap < 1.5) {
+      if (!this.tempoLocked && gap > 0.3 && gap < 1.5) {
         this.beatInterval = this.beatInterval * 0.7 + gap * 0.3;
       }
       this._lastBeatTime = now;
@@ -269,64 +324,155 @@ export class AudioEngine {
   }
 
   /**
-   * Periodic tempo (BPM) estimation from the last ~12s of beat onsets.
-   * Successive AND skip-one inter-onset intervals (so a single missed beat
-   * doesn't poison the data) are octave-folded into the 70-180 BPM range,
-   * then clustered; the tightest cluster's mean becomes the beat interval.
-   * Runs every 2s, so tempo changes are picked up within a few seconds.
+   * Phase-locked metronome (used once tempo is locked): beats fire on the
+   * predicted grid, giving visuals a rock-steady pulse even when individual
+   * kicks are inaudible. _analyzeTempo re-aligns the grid every 2s.
    */
-  _estimateTempo(now) {
-    this._onsets = this._onsets.filter((o) => now - o < 12);
-    const onsets = this._onsets;
-    if (onsets.length < 4) {
-      this.bpmConfidence = 0;
-      if (onsets.length === 0) this.bpm = 0;
+  _metronome(now, dt) {
+    this.beat = false;
+    if (now >= this._nextBeat) {
+      this.beat = true;
+      this.beatPulse = 1;
+      this._lastBeatTime = now;
+      this._nextBeat += this.beatInterval;
+      // catch up after tab sleep / long frame gaps
+      while (this._nextBeat <= now) this._nextBeat += this.beatInterval;
+    }
+    this.beatPulse = Math.max(0, this.beatPulse - dt * 3.5);
+    this.beatPhase = Math.min(1, Math.max(0, 1 - (this._nextBeat - now) / this.beatInterval));
+  }
+
+  /**
+   * Tempo induction by autocorrelating the onset-strength envelope.
+   * The envelope is resampled onto a uniform 50Hz grid; autocorrelation over
+   * lags spanning 70-180 BPM (scored with a 2x-lag harmonic bonus to resolve
+   * octave errors, refined by parabolic interpolation) yields the period.
+   * Beat PHASE comes from comb-matching a pulse train at that period against
+   * the recent envelope. No discrete beat needs to be detected for this to
+   * work — the tempo emerges from all ~8s of evidence at once.
+   */
+  _analyzeTempo(now) {
+    const RATE = 50;
+    const span = this._envT.length ? now - this._envT[0] : 0;
+    if (this._envT.length < 100 || span < 4 || !this.musicActive) {
+      this._degradeLock();
       return;
     }
 
-    const intervals = [];
-    for (let i = 1; i < onsets.length; i++) {
-      const d1 = onsets[i] - onsets[i - 1];
-      if (d1 > 0.2 && d1 < 4) intervals.push(d1);
-      if (i >= 2) {
-        const d2 = onsets[i] - onsets[i - 2];
-        if (d2 > 0.2 && d2 < 4) intervals.push(d2);
-      }
+    const N = Math.min(Math.floor(span * RATE), 8 * RATE);
+    const tStart = now - N / RATE;
+    const e = new Float32Array(N);
+    for (let i = 0; i < this._envT.length; i++) {
+      const idx = Math.floor((this._envT[i] - tStart) * RATE);
+      if (idx >= 0 && idx < N && this._envV[i] > e[idx]) e[idx] = this._envV[i];
     }
-    if (intervals.length < 3) return;
+    let mean = 0;
+    for (let i = 0; i < N; i++) mean += e[i];
+    mean /= N;
+    for (let i = 0; i < N; i++) e[i] -= mean;
 
-    // Fold into [60/180, 60/70] seconds — the octave a two-step lives in
-    const folded = intervals.map((d) => {
-      while (d < 60 / 180) d *= 2;
-      while (d > 60 / 70) d /= 2;
-      return d;
-    });
-
-    let best = 0;
-    let bestScore = 0;
-    for (const center of folded) {
-      let score = 0;
-      let sum = 0;
-      for (const f of folded) {
-        if (Math.abs(f - center) / center < 0.06) {
-          score++;
-          sum += f;
-        }
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        best = sum / score;
-      }
+    let energy = 0;
+    for (let i = 0; i < N; i++) energy += e[i] * e[i];
+    energy /= N;
+    if (energy < 1e-8) {
+      this._degradeLock();
+      return;
     }
 
-    if (bestScore >= Math.max(3, folded.length * 0.3)) {
-      // Blend toward the new estimate — quick enough to track tempo changes,
-      // smooth enough not to jitter the dancers
-      this.beatInterval += (best - this.beatInterval) * 0.5;
-      this.bpm = 60 / this.beatInterval;
-      this.bpmConfidence = Math.min(1, bestScore / folded.length);
+    const minLag = Math.round((RATE * 60) / 180);
+    const maxLag = Math.round((RATE * 60) / 70);
+    const acMax = Math.min(2 * maxLag + 1, N - 1);
+    const ac = new Float32Array(acMax + 1);
+    for (let lag = minLag; lag <= acMax; lag++) {
+      let s = 0;
+      for (let i = lag; i < N; i++) s += e[i] * e[i - lag];
+      ac[lag] = s / (N - lag) / energy; // normalized: 1 = perfectly periodic
+    }
+
+    const score = (lag) => {
+      if (lag < minLag || lag > maxLag) return -1;
+      const harmonic = 2 * lag <= acMax ? ac[2 * lag] : 0;
+      return ac[lag] + 0.5 * harmonic;
+    };
+    let bestLag = 0;
+    let bestScore = -1;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      const s = score(lag);
+      if (s > bestScore) {
+        bestScore = s;
+        bestLag = lag;
+      }
+    }
+
+    const conf = Math.min(1, Math.max(0, bestScore * 0.8));
+    if (conf < 0.2) {
+      this._degradeLock();
+      return;
+    }
+
+    // Parabolic refinement for sub-sample (sub-BPM) precision
+    const s1 = score(bestLag - 1);
+    const s2 = bestScore;
+    const s3 = score(bestLag + 1);
+    let delta = 0;
+    const denom = s1 - 2 * s2 + s3;
+    if (s1 >= 0 && s3 >= 0 && Math.abs(denom) > 1e-9) {
+      delta = Math.max(-0.5, Math.min(0.5, (0.5 * (s1 - s3)) / denom));
+    }
+    const period = (bestLag + delta) / RATE;
+
+    // Tempo continuity: small drift blends smoothly, a real change snaps
+    if (Math.abs(period - this.beatInterval) / this.beatInterval < 0.08) {
+      this.beatInterval = this.beatInterval * 0.6 + period * 0.4;
     } else {
-      this.bpmConfidence *= 0.5;
+      this.beatInterval = period;
+    }
+    this.bpm = 60 / this.beatInterval;
+    this.bpmConfidence = conf;
+
+    // ---- phase: comb-match a pulse train at the found period ----
+    const periodSamples = this.beatInterval * RATE;
+    const combSpan = Math.min(N, 4 * RATE);
+    const nPulses = Math.max(1, Math.floor(combSpan / periodSamples) - 1);
+    const steps = Math.max(1, Math.round(periodSamples));
+    let bestOff = 0;
+    let bestSum = -Infinity;
+    for (let o = 0; o < steps; o++) {
+      let sum = 0;
+      for (let k = 0; k <= nPulses; k++) {
+        const idx = N - 1 - o - Math.round(k * periodSamples);
+        if (idx >= 0) sum += e[idx];
+      }
+      if (sum > bestSum) {
+        bestSum = sum;
+        bestOff = o;
+      }
+    }
+    let aligned = now - bestOff / RATE; // most recent beat location
+    while (aligned + this.beatInterval < now) aligned += this.beatInterval;
+    const predicted = aligned + this.beatInterval; // first beat after `now`
+
+    if (this.tempoLocked) {
+      // nudge rather than jump, so visuals don't stutter
+      let diff = predicted - this._nextBeat;
+      const T = this.beatInterval;
+      diff = ((diff % T) + 1.5 * T) % T - 0.5 * T; // center into [-T/2, T/2)
+      this._nextBeat += Math.max(-0.2 * T, Math.min(0.2 * T, diff));
+      while (this._nextBeat <= now) this._nextBeat += T;
+    } else {
+      this._nextBeat = predicted;
+      this.tempoLocked = true;
+    }
+  }
+
+  _degradeLock() {
+    this.bpmConfidence *= 0.6;
+    if (this.bpmConfidence < 0.12) {
+      this.tempoLocked = false;
+      if (this.bpmConfidence < 0.03) {
+        this.bpmConfidence = 0;
+        this.bpm = 0;
+      }
     }
   }
 }

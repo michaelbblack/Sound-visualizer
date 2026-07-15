@@ -48,12 +48,15 @@ The control bar and cursor auto-hide after 3 seconds of no mouse movement.
 
 - `js/audio.js` — Web Audio `AnalyserNode` over the mic stream (behind an
   auto-gain stage so quiet real-world mics still drive the visuals); derives
-  smoothed bass/mid/treble/level bands plus **beat detection** (bass-energy
-  flux vs. a rolling average) and a **periodic tempo estimator**: every 2s the
-  last ~12s of beat onsets are octave-folded into 70–180 BPM and clustered,
-  and the tightest cluster sets `bpm`/`beatInterval`, so tempo changes are
-  tracked within a few seconds. Several visualizations pump with the beat
-  *phase* (tempo-locked) rather than a fixed decay.
+  smoothed bass/mid/treble/level bands plus **tempo tracking by envelope
+  autocorrelation**: every frame records an onset-strength sample (spectral
+  flux); every 2s the last ~8s of that envelope is autocorrelated over the
+  70–180 BPM range (with harmonic scoring and parabolic refinement) to find
+  the tempo, and a comb filter finds the beat *phase*. A phase-locked
+  metronome then fires perfectly regular beats on that grid — robust with
+  real microphones, where individual kick attacks are too smeared to detect
+  reliably. Several visualizations pump with the beat phase (tempo-locked)
+  rather than a fixed decay.
 - `js/visualizations/*.js` — each visualization is a small class with a
   `draw({ctx, audio, w, h, dt, t})` method; add your own and register it in
   `js/main.js`.
