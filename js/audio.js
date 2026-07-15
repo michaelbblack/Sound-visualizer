@@ -52,6 +52,8 @@ export class AudioEngine {
     this._lastBeatTime = 0;
     this._nextBeat = 0;
     this._lastTempoRun = 0;
+    this._lastAudible = 0;
+    this._badWindows = 0;
     this._prevSpec = null;
     this._fluxHistory = [];
     this._envT = []; // onset-strength envelope: times…
@@ -280,16 +282,22 @@ export class AudioEngine {
     return { full, low };
   }
 
-  /** Music is "active" when the recent envelope shows real onsets and level. */
+  /**
+   * Music is "active" when the recent envelope shows real onsets AND level.
+   * Sticky with ~1.8s of hysteresis: a borderline frame or a quiet bar must
+   * not flap this flag (a flap halts the metronome and pauses the dancers) —
+   * only sustained silence deactivates it.
+   */
   _updateMusicActive(now) {
     let sum = 0;
     let count = 0;
-    for (let i = this._envT.length - 1; i >= 0 && now - this._envT[i] < 1.2; i--) {
+    for (let i = this._envT.length - 1; i >= 0 && now - this._envT[i] < 0.8; i--) {
       sum += this._envV[i];
       count++;
     }
     const recent = count ? sum / count : 0;
-    this.musicActive = recent > 0.003 && this.rms > 0.02;
+    if (recent > 0.002 && this.rms > 0.04) this._lastAudible = now;
+    this.musicActive = now - this._lastAudible < 1.2;
   }
 
   /**
@@ -406,9 +414,13 @@ export class AudioEngine {
 
     const conf = Math.min(1, Math.max(0, bestScore * 0.8));
     if (conf < 0.2) {
-      this._degradeLock();
+      // One noisy window (a fill, a breakdown) must not drop an established
+      // lock while music is playing — require consecutive failures.
+      this._badWindows++;
+      if (!this.musicActive || this._badWindows >= 2 || !this.tempoLocked) this._degradeLock();
       return;
     }
+    this._badWindows = 0;
 
     // Parabolic refinement for sub-sample (sub-BPM) precision
     const s1 = score(bestLag - 1);

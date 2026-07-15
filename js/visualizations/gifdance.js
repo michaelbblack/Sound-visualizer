@@ -91,26 +91,40 @@ export class GifTwoStep {
       return;
     }
 
-    // ---- pick the frame: beat-locked while the music plays, frozen when it stops ----
+    // ---- pick the frame; three states so the dance never stutters ----
+    // 1. fresh beats     -> scrub locked to the beat grid
+    // 2. music, no beats -> free-run at the estimated tempo (a missed beat or
+    //                       a momentary tempo-lock loss must NOT stop the dance)
+    // 3. silence         -> freeze mid-step until the music returns
     if (audio.beat) {
-      this.beatPos++;
+      if (this.sinceBeat > 1.2) {
+        // resuming after a gap: re-base so the dance continues from the
+        // exact frame it free-ran/froze at (a beat means phase ~ 0)
+        this.beatPos = this.lastFrac * this.k;
+      } else {
+        this.beatPos++;
+      }
       this.sinceBeat = 0;
     }
     this.sinceBeat += dt;
 
-    const dancing = this.sinceBeat < 2.0;
-    if (dancing) {
-      const k = this._beatsPerLoop(audio.beatInterval);
-      const phase = Math.min(1, audio.beatPhase);
-      if (k !== this.k) {
-        // tempo shifted enough to change beats-per-loop: re-base the beat
-        // position so the visible frame doesn't jump
-        this.beatPos = this.lastFrac * k - phase;
-        this.k = k;
-      }
-      this.lastFrac = (((this.beatPos % k) + k) % k + phase) / k;
+    const k = this._beatsPerLoop(audio.beatInterval);
+    if (k !== this.k) {
+      // tempo shifted enough to change beats-per-loop: re-base the beat
+      // position so the visible frame doesn't jump
+      this.beatPos = this.lastFrac * k - Math.min(1, audio.beatPhase);
+      this.k = k;
     }
-    // not dancing: lastFrac stays put — paused mid-step
+
+    if (this.sinceBeat < 1.2) {
+      const phase = Math.min(1, audio.beatPhase);
+      this.lastFrac = (((((this.beatPos % k) + k) % k) + phase) / k) % 1;
+    } else if (audio.musicActive && audio.tempoLocked) {
+      // no beat event lately but the tempo lock is holding: keep dancing at
+      // the estimated tempo rather than stuttering to a halt
+      this.lastFrac = (this.lastFrac + dt / (k * audio.beatInterval)) % 1;
+    }
+    // else: silence — lastFrac stays put, paused mid-step
     const frame = this._frameAt(this.lastFrac);
 
     // ---- layout: fit to ~80% of the viewport, with beat squash & bounce ----
