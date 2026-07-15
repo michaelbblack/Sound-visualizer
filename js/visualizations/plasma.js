@@ -53,7 +53,7 @@ export class PsychedelicFeedback {
     const wl = audio.wave.length;
     for (let i = 0; i <= wl; i += 6) {
       const ang = (i / wl) * Math.PI * 2 + t * 0.4;
-      const r = baseR * (1 + ((audio.wave[i % wl] - 128) / 128) * 0.6 * audio.sensitivity);
+      const r = baseR * (1 + ((audio.wave[i % wl] - 128) / 128) * 0.6);
       const x = cx + Math.cos(ang) * r;
       const y = cy + Math.sin(ang) * r;
       if (i === 0) b.moveTo(x, y);

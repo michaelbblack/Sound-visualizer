@@ -155,6 +155,23 @@ html, body {
   accent-color: #3affd0;
 }
 
+#level-meter {
+  width: 0.5rem;
+  height: 1.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+
+#level-fill {
+  width: 100%;
+  height: 0%;
+  background: linear-gradient(to top, #2eff6a 55%, #ffd23a 80%, #ff4d4d);
+  transition: height 0.05s linear;
+}
+
 /* ---------- Viz title flash ---------- */
 
 #viz-title {

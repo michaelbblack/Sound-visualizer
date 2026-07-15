@@ -15,9 +15,12 @@ export class AudioEngine {
   constructor() {
     this.ctx = null;
     this.analyser = null;
+    this.input = null; // gain stage in front of the analyser (AGC lives here)
     this.freq = new Uint8Array(1024);
     this.wave = new Uint8Array(2048);
     this.sensitivity = 1;
+    this.autoGain = 1;
+    this.rms = 0;
 
     this.bass = 0;
     this.mid = 0;
@@ -46,7 +49,7 @@ export class AudioEngine {
     });
     this._createContext();
     const source = this.ctx.createMediaStreamSource(stream);
-    source.connect(this.analyser);
+    source.connect(this.input);
     this.mode = 'mic';
   }
 
@@ -56,7 +59,7 @@ export class AudioEngine {
     const ctx = this.ctx;
     const master = ctx.createGain();
     master.gain.value = 0.5;
-    master.connect(this.analyser);
+    master.connect(this.input);
     master.connect(ctx.destination);
 
     const bpm = 124;
@@ -136,8 +139,15 @@ export class AudioEngine {
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 2048;
     this.analyser.smoothingTimeConstant = 0.8;
+    this.input = this.ctx.createGain();
+    this.input.connect(this.analyser);
     this.freq = new Uint8Array(this.analyser.frequencyBinCount);
     this.wave = new Uint8Array(this.analyser.fftSize);
+  }
+
+  /** iOS suspends the context when the tab loses focus; call on user gestures. */
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
   }
 
   /** Call once per animation frame. */
@@ -148,14 +158,41 @@ export class AudioEngine {
 
     this.analyser.getByteFrequencyData(this.freq);
     this.analyser.getByteTimeDomainData(this.wave);
+    this._autoGain(dt);
 
-    const s = this.sensitivity;
-    this.bass = this._smooth(this.bass, this._bandLevel(0, 0.04) * s, dt);
-    this.mid = this._smooth(this.mid, this._bandLevel(0.04, 0.25) * s, dt);
-    this.treb = this._smooth(this.treb, this._bandLevel(0.25, 0.8) * s, dt);
-    this.level = this._smooth(this.level, this._bandLevel(0, 0.8) * s, dt);
+    this.bass = this._smooth(this.bass, this._bandLevel(0, 0.04), dt);
+    this.mid = this._smooth(this.mid, this._bandLevel(0.04, 0.25), dt);
+    this.treb = this._smooth(this.treb, this._bandLevel(0.25, 0.8), dt);
+    this.level = this._smooth(this.level, this._bandLevel(0, 0.8), dt);
 
     this._detectBeat(now, dt);
+  }
+
+  /**
+   * Automatic gain control: real microphones (especially on phones) deliver a
+   * far quieter signal than line-level audio, so we amplify BEFORE the
+   * analyser and keep adapting until the waveform sits at a healthy level.
+   * The sensitivity slider steers the target loudness, not a raw multiplier.
+   */
+  _autoGain(dt) {
+    const wave = this.wave;
+    let sum = 0;
+    for (let i = 0; i < wave.length; i += 4) {
+      const d = (wave[i] - 128) / 128;
+      sum += d * d;
+    }
+    this.rms = Math.sqrt(sum / (wave.length / 4));
+
+    const target = 0.2 * this.sensitivity;
+    const noiseFloor = 0.006; // don't amplify silence into a light show
+    if (this.rms > noiseFloor) {
+      const desired = Math.min(64, Math.max(0.25, this.autoGain * (target / this.rms)));
+      // ramp up gently, back off fast when the signal gets hot (avoids pumping)
+      const rate = desired > this.autoGain ? 0.5 : 4.0;
+      this.autoGain += (desired - this.autoGain) * Math.min(1, rate * dt);
+      this.input.gain.setTargetAtTime(this.autoGain, this.ctx.currentTime, 0.1);
+    }
+    // below the floor: freeze the gain so returning music is picked up instantly
   }
 
   _bandLevel(fromFrac, toFrac) {
@@ -179,7 +216,7 @@ export class AudioEngine {
    * Beat times feed a rolling tempo estimate used for beatPhase.
    */
   _detectBeat(now, dt) {
-    const energy = this._bandLevel(0, 0.05) * this.sensitivity;
+    const energy = this._bandLevel(0, 0.05);
     this._energyHistory.push(energy);
     if (this._energyHistory.length > 43) this._energyHistory.shift(); // ~0.7s at 60fps
 

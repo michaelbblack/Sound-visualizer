@@ -25,7 +25,7 @@ export class SpectrumBars {
       const to = Math.max(from + 1, Math.floor(t1 * usable));
       let sum = 0;
       for (let j = from; j < to; j++) sum += audio.freq[j];
-      const v = Math.min(1, (sum / (to - from) / 255) * audio.sensitivity);
+      const v = Math.min(1, sum / (to - from) / 255);
 
       const barH = v * maxBarH;
       const x = gap + i * (barW + gap);

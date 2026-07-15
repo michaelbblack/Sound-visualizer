@@ -10,7 +10,7 @@ export class Oscilloscope {
     ctx.fillRect(0, 0, w, h);
 
     this.hue = (this.hue + dt * 12 + audio.beatPulse * dt * 120) % 360;
-    const amp = h * 0.35 * Math.min(2.5, 0.6 + audio.sensitivity);
+    const amp = h * 0.42;
     const mid = h / 2;
     const wave = audio.wave;
 

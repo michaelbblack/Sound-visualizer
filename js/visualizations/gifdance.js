@@ -147,7 +147,7 @@ export class GifTwoStep {
     const barW = w / bars;
     for (let i = 0; i < bars; i++) {
       const bin = Math.floor(Math.pow(i / bars, 1.5) * usable);
-      const v = Math.min(1, (audio.freq[bin] / 255) * audio.sensitivity);
+      const v = Math.min(1, audio.freq[bin] / 255);
       const bh = v * h * 0.35;
       ctx.fillStyle = `hsla(${(i * 8 + t * 30) % 360}, 80%, 50%, 0.28)`;
       ctx.fillRect(i * barW + 1, h - bh, barW - 2, bh);

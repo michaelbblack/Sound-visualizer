@@ -39,6 +39,7 @@ const controls = document.getElementById('controls');
 const vizSelect = document.getElementById('viz-select');
 const vizTitle = document.getElementById('viz-title');
 const sensitivity = document.getElementById('sensitivity');
+const levelFill = document.getElementById('level-fill');
 
 visualizations.forEach((v, i) => {
   const opt = document.createElement('option');
@@ -107,6 +108,13 @@ function wake() {
 }
 ['mousemove', 'touchstart', 'click'].forEach((ev) => document.addEventListener(ev, wake));
 
+// iOS Safari suspends the AudioContext when the tab is backgrounded and won't
+// always resume it on its own — kick it on any interaction / return to tab.
+['touchend', 'click'].forEach((ev) => document.addEventListener(ev, () => audio.resume()));
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) audio.resume();
+});
+
 // ---------- start flow ----------
 async function start(mode) {
   startError.classList.add('hidden');
@@ -137,6 +145,7 @@ function frame() {
 
   if (audio.analyser) {
     audio.update(now);
+    levelFill.style.height = `${Math.min(100, audio.rms * 320)}%`;
     visualizations[current].draw({
       ctx,
       audio,
@@ -149,3 +158,6 @@ function frame() {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// Debug handle (e.g. check __viz.audio.autoGain / .rms from the console)
+window.__viz = { audio, visualizations };

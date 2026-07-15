@@ -19,7 +19,7 @@ export class RadialBurst {
 
     for (let i = 0; i < spikes; i++) {
       const bin = Math.floor(Math.pow(i / spikes, 1.4) * usable);
-      const v = Math.min(1, (audio.freq[bin] / 255) * audio.sensitivity);
+      const v = Math.min(1, audio.freq[bin] / 255);
       const ang = (i / spikes) * Math.PI * 2 + this.rot;
       const len = v * Math.min(w, h) * 0.32;
 
