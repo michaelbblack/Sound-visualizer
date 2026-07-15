@@ -9,7 +9,7 @@
  */
 export class ToonTwoStep {
   constructor() {
-    this.name = 'Toon Two-Step (Meme)';
+    this.name = 'Toon Dancers (3D)';
     this.beatCount = 0;
     this.stepSide = 1; // +1 stepping right, -1 stepping left
     this.dancers = [
