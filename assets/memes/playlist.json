@@ -1,7 +1,4 @@
 [
   { "file": "two-step.gif", "beats": 32 },
-  { "file": "bart-groove.gif", "beats": 32 },
-  { "file": "approval-nod.jpeg", "beats": 16 },
-  { "file": "rave-kid.jpeg", "beats": 16 },
-  { "file": "spooky-scary.jpeg", "beats": 16 }
+  { "file": "bart-groove.gif", "beats": 32 }
 ]

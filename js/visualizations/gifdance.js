@@ -4,19 +4,19 @@ import { loadGif } from '../lib/gif.js';
  * Meme Cycle: one visualizer that rotates through a playlist of memes
  * (assets/memes/playlist.json), keeping everything locked to the beat.
  *
- * - Animated GIFs are decoded to independent frames and SCRUBBED to the beat
+ * - Each GIF is decoded to independent frames and SCRUBBED to the beat
  *   grid: each loop is pinned to an even number of beats k (matched to the
  *   GIF's natural speed and the live tempo estimate), each detected beat
  *   advances the loop by exactly 1/k, and when beat events lapse but the
  *   tempo lock holds, playback free-runs at the estimated tempo instead of
  *   stuttering. When the music stops, the meme freezes until it returns.
- * - Static images can't animate, so they dance instead: a beat-locked nod
- *   (alternating tilt) and zoom-punch that hits on every beat.
  * - After a meme has held the floor for its `beats` count, the next beat
  *   hard-cuts to the next meme in the playlist with a flash — so cuts land
  *   on the rhythm too.
+ * - Animated GIFs only: files that decode to a single frame (static images,
+ *   thumbnails) are skipped with a console warning rather than shown frozen.
  *
- * Add your own: drop a GIF (or image) into assets/memes/ and list it in
+ * Add your own: drop an animated GIF into assets/memes/ and list it in
  * playlist.json.
  */
 export class MemeCycle {
@@ -31,7 +31,6 @@ export class MemeCycle {
     this.sinceBeat = 999;
     this.beatsOnMeme = 0;
     this.switchFlash = 0;
-    this.nodSide = 1;
     this._load();
   }
 
@@ -58,33 +57,22 @@ export class MemeCycle {
 
   async _loadMeme(entry) {
     const url = 'assets/memes/' + entry.file;
-    if (/\.gif$/i.test(entry.file)) {
-      const gif = await loadGif(url);
-      const durationMs = gif.frames.reduce((a, f) => a + f.delay, 0);
-      let acc = 0;
-      const frames = gif.frames.map((f) => {
-        const canvas = document.createElement('canvas');
-        canvas.width = gif.width;
-        canvas.height = gif.height;
-        canvas.getContext('2d').putImageData(new ImageData(f.rgba, gif.width, gif.height), 0, 0);
-        const startFrac = acc / durationMs;
-        acc += f.delay;
-        return { canvas, startFrac };
-      });
-      return { frames, w: gif.width, h: gif.height, duration: durationMs / 1000, beats: entry.beats || 32 };
+    const gif = await loadGif(url);
+    if (gif.frames.length < 2) {
+      throw new Error(`${entry.file} has no animation (single frame) — skipped`);
     }
-    // static image: one frame, animated by the beat-nod instead
-    const img = await new Promise((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = () => reject(new Error('could not load ' + url));
-      i.src = url;
+    const durationMs = gif.frames.reduce((a, f) => a + f.delay, 0);
+    let acc = 0;
+    const frames = gif.frames.map((f) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = gif.width;
+      canvas.height = gif.height;
+      canvas.getContext('2d').putImageData(new ImageData(f.rgba, gif.width, gif.height), 0, 0);
+      const startFrac = acc / durationMs;
+      acc += f.delay;
+      return { canvas, startFrac };
     });
-    const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    canvas.getContext('2d').drawImage(img, 0, 0);
-    return { frames: [{ canvas, startFrac: 0 }], w: canvas.width, h: canvas.height, duration: 0, beats: entry.beats || 16 };
+    return { frames, w: gif.width, h: gif.height, duration: durationMs / 1000, beats: entry.beats || 32 };
   }
 
   /** Even number of beats per GIF loop that best matches its natural speed. */
@@ -143,7 +131,6 @@ export class MemeCycle {
         this.beatPos++;
       }
       this.sinceBeat = 0;
-      this.nodSide = -this.nodSide;
       this.beatsOnMeme++;
       if (this.memes.length > 1 && this.beatsOnMeme >= this.memes[this.idx].beats) {
         this.idx = (this.idx + 1) % this.memes.length;
@@ -156,38 +143,30 @@ export class MemeCycle {
     this.sinceBeat += dt;
 
     const meme = this.memes[this.idx];
-    const isStatic = meme.frames.length === 1;
     const phase = Math.min(1, audio.beatPhase);
-    const swell = Math.pow(1 - phase, 2); // 1 at the beat, relaxing to 0
 
-    // ---- playback position (animated memes); three states, never stutters ----
-    if (!isStatic) {
-      const k = this._beatsPerLoop(meme, audio.beatInterval);
-      if (k !== this.k) {
-        // tempo shifted enough to change beats-per-loop: re-base the beat
-        // position so the visible frame doesn't jump
-        this.beatPos = this.lastFrac * k - phase;
-        this.k = k;
-      }
-      if (this.sinceBeat < 1.2) {
-        this.lastFrac = (((((this.beatPos % k) + k) % k) + phase) / k) % 1;
-      } else if (audio.musicActive && audio.tempoLocked) {
-        // no beat event lately but the tempo lock is holding: keep dancing
-        this.lastFrac = (this.lastFrac + dt / (k * audio.beatInterval)) % 1;
-      }
-      // else: silence — lastFrac stays put, paused mid-step
+    // ---- playback position; three states, never stutters ----
+    const k = this._beatsPerLoop(meme, audio.beatInterval);
+    if (k !== this.k) {
+      // tempo shifted enough to change beats-per-loop: re-base the beat
+      // position so the visible frame doesn't jump
+      this.beatPos = this.lastFrac * k - phase;
+      this.k = k;
     }
-    const frame = this._frameAt(meme, isStatic ? 0 : this.lastFrac);
+    if (this.sinceBeat < 1.2) {
+      this.lastFrac = (((((this.beatPos % k) + k) % k) + phase) / k) % 1;
+    } else if (audio.musicActive && audio.tempoLocked) {
+      // no beat event lately but the tempo lock is holding: keep dancing
+      this.lastFrac = (this.lastFrac + dt / (k * audio.beatInterval)) % 1;
+    }
+    // else: silence — lastFrac stays put, paused mid-step
+    const frame = this._frameAt(meme, this.lastFrac);
 
     // ---- layout: fit to ~80% of the viewport, with beat squash & bounce ----
     const fit = Math.min((w * 0.85) / meme.w, (h * 0.8) / meme.h);
     const bounce = Math.abs(Math.sin(phase * Math.PI));
-    // static memes dance via a beat-locked nod (tilt) + zoom punch
-    const dancingNow = audio.musicActive && this.sinceBeat < 2.5;
-    const punch = isStatic && dancingNow ? 1 + 0.1 * swell : 1;
-    const angle = isStatic && dancingNow ? this.nodSide * 0.07 * swell : 0;
-    const sx = fit * (1 - audio.beatPulse * 0.03) * punch;
-    const sy = fit * (1 + audio.beatPulse * 0.05) * punch;
+    const sx = fit * (1 - audio.beatPulse * 0.03);
+    const sy = fit * (1 + audio.beatPulse * 0.05);
     const dw = meme.w * sx;
     const dh = meme.h * sy;
     const shake = (Math.random() - 0.5) * audio.beatPulse * w * 0.006;
@@ -196,7 +175,6 @@ export class MemeCycle {
 
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate(angle);
 
     // Ghost echoes flanking the image on beats — cheap RGB-split feel
     if (audio.beatPulse > 0.05) {
