@@ -6,7 +6,7 @@ import { PsychedelicFeedback } from './visualizations/plasma.js';
 import { BeatParticles } from './visualizations/particles.js';
 import { StarfieldWarp } from './visualizations/tunnel.js';
 import { ToonTwoStep } from './visualizations/dancers.js';
-import { GifTwoStep } from './visualizations/gifdance.js';
+import { MemeCycle } from './visualizations/gifdance.js';
 import { PulseRings } from './visualizations/pulserings.js';
 
 const canvas = document.getElementById('viz-canvas');
@@ -21,7 +21,7 @@ const visualizations = [
   new BeatParticles(),
   new StarfieldWarp(),
   new PulseRings(),
-  new GifTwoStep(),
+  new MemeCycle(),
   new ToonTwoStep(),
 ];
 let current = 0;
