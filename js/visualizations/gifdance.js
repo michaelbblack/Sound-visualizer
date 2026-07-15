@@ -6,17 +6,21 @@ import { loadGif } from '../lib/gif.js';
  *
  * How the sync works: the GIF loop is assigned a whole (even) number of
  * beats k — chosen so k * beatInterval best matches the GIF's natural
- * duration — then the current frame is picked from (beatCount + beatPhase)/k.
- * Every detected beat advances the loop by exactly 1/k, so footfalls land on
- * the beat even when the tempo drifts. With no recent beats (quiet room) it
- * falls back to natural-speed playback.
+ * duration, re-evaluated continuously against the tempo estimator — then the
+ * current frame is picked from (beatPos + beatPhase)/k. Every detected beat
+ * advances the loop by exactly 1/k, so footfalls land on the beat even as
+ * tempo changes (when k switches, playback position is re-based so there's
+ * no visual jump). When the beats stop, the crew freezes mid-step until the
+ * music comes back.
  */
 export class GifTwoStep {
   constructor(url = 'assets/two-step.gif') {
     this.name = 'Two-Step Meme';
     this.frames = null;
     this.error = null;
-    this.beatCount = 0;
+    this.beatPos = 0; // beats elapsed within the dance (float-rebased on k changes)
+    this.k = 4;       // beats per GIF loop
+    this.lastFrac = 0;
     this.sinceBeat = 999;
 
     loadGif(url)
@@ -87,21 +91,27 @@ export class GifTwoStep {
       return;
     }
 
-    // ---- pick the frame: beat-locked when the music has a pulse ----
+    // ---- pick the frame: beat-locked while the music plays, frozen when it stops ----
     if (audio.beat) {
-      this.beatCount++;
+      this.beatPos++;
       this.sinceBeat = 0;
     }
     this.sinceBeat += dt;
 
-    let frac;
-    if (this.sinceBeat < 2.5) {
+    const dancing = this.sinceBeat < 2.0;
+    if (dancing) {
       const k = this._beatsPerLoop(audio.beatInterval);
-      frac = ((this.beatCount % k) + Math.min(1, audio.beatPhase)) / k;
-    } else {
-      frac = (t % this.duration) / this.duration; // idle: natural speed
+      const phase = Math.min(1, audio.beatPhase);
+      if (k !== this.k) {
+        // tempo shifted enough to change beats-per-loop: re-base the beat
+        // position so the visible frame doesn't jump
+        this.beatPos = this.lastFrac * k - phase;
+        this.k = k;
+      }
+      this.lastFrac = (((this.beatPos % k) + k) % k + phase) / k;
     }
-    const frame = this._frameAt(frac);
+    // not dancing: lastFrac stays put — paused mid-step
+    const frame = this._frameAt(this.lastFrac);
 
     // ---- layout: fit to ~80% of the viewport, with beat squash & bounce ----
     const fit = Math.min((w * 0.85) / this.gifW, (h * 0.8) / this.gifH);

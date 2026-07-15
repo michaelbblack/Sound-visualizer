@@ -31,8 +31,13 @@ export class AudioEngine {
     this.beatPulse = 0;
     this.beatPhase = 0;
     this.beatInterval = 0.5; // 120 BPM default until we've measured
+    this.bpm = 0;            // 0 until the tempo estimator is confident
+    this.bpmConfidence = 0;  // 0..1, fraction of recent intervals agreeing
     this._lastBeatTime = 0;
-    this._energyHistory = [];
+    this._onsets = [];
+    this._lastTempoRun = 0;
+    this._prevLow = null;
+    this._fluxHistory = [];
     this._lastFrameTime = 0;
 
     this.mode = null; // 'mic' | 'demo'
@@ -138,7 +143,7 @@ export class AudioEngine {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.8;
+    this.analyser.smoothingTimeConstant = 0.65; // low enough that beat attacks stay sharp
     this.input = this.ctx.createGain();
     this.input.connect(this.analyser);
     this.freq = new Uint8Array(this.analyser.frequencyBinCount);
@@ -166,6 +171,10 @@ export class AudioEngine {
     this.level = this._smooth(this.level, this._bandLevel(0, 0.8), dt);
 
     this._detectBeat(now, dt);
+    if (now - this._lastTempoRun > 2) {
+      this._lastTempoRun = now;
+      this._estimateTempo(now);
+    }
   }
 
   /**
@@ -211,29 +220,45 @@ export class AudioEngine {
   }
 
   /**
-   * Energy-flux beat detection: a beat fires when instantaneous bass energy
-   * exceeds the recent average by a threshold, with a refractory period.
-   * Beat times feed a rolling tempo estimate used for beatPhase.
+   * Spectral-flux beat detection: sums the frame-to-frame INCREASE in each
+   * low-frequency bin. Sustained bass (a drone, a bassline held under the
+   * whole track) contributes nothing, while a kick's attack spikes the flux —
+   * so this works even when the bass band's absolute level never dips.
+   * A beat fires when flux exceeds the rolling average, with a refractory
+   * period; onset times feed the tempo estimator.
    */
   _detectBeat(now, dt) {
-    const energy = this._bandLevel(0, 0.05);
-    this._energyHistory.push(energy);
-    if (this._energyHistory.length > 43) this._energyHistory.shift(); // ~0.7s at 60fps
+    const bins = Math.floor(this.freq.length * 0.1); // ~0-1.2kHz: kick + low percussion
+    let flux = 0;
+    if (this._prevLow) {
+      for (let i = 0; i < bins; i++) {
+        const d = this.freq[i] - this._prevLow[i];
+        if (d > 0) flux += d;
+      }
+      flux /= bins * 255;
+    } else {
+      this._prevLow = new Uint8Array(bins);
+    }
+    this._prevLow.set(this.freq.subarray(0, bins));
 
-    const avg = this._energyHistory.reduce((a, b) => a + b, 0) / this._energyHistory.length;
-    const minGap = Math.max(0.22, this.beatInterval * 0.5);
+    this._fluxHistory.push(flux);
+    if (this._fluxHistory.length > 43) this._fluxHistory.shift(); // ~0.7s at 60fps
+
+    const avg = this._fluxHistory.reduce((a, b) => a + b, 0) / this._fluxHistory.length;
+    const minGap = Math.max(0.22, this.beatInterval * 0.45);
 
     this.beat = false;
     if (
-      energy > 0.06 &&
-      energy > avg * 1.35 &&
+      flux > 0.01 &&
+      flux > avg * 1.5 + 0.005 &&
       now - this._lastBeatTime > minGap
     ) {
       this.beat = true;
       this.beatPulse = 1;
+      this._onsets.push(now);
+      // Until the tempo estimator is confident, track gaps directly
       const gap = now - this._lastBeatTime;
-      // Accept plausible musical tempos (40-200 BPM) into the estimate
-      if (gap > 0.3 && gap < 1.5) {
+      if (this.bpmConfidence < 0.2 && gap > 0.3 && gap < 1.5) {
         this.beatInterval = this.beatInterval * 0.7 + gap * 0.3;
       }
       this._lastBeatTime = now;
@@ -241,5 +266,67 @@ export class AudioEngine {
 
     this.beatPulse = Math.max(0, this.beatPulse - dt * 3.5);
     this.beatPhase = Math.min(1, (now - this._lastBeatTime) / this.beatInterval);
+  }
+
+  /**
+   * Periodic tempo (BPM) estimation from the last ~12s of beat onsets.
+   * Successive AND skip-one inter-onset intervals (so a single missed beat
+   * doesn't poison the data) are octave-folded into the 70-180 BPM range,
+   * then clustered; the tightest cluster's mean becomes the beat interval.
+   * Runs every 2s, so tempo changes are picked up within a few seconds.
+   */
+  _estimateTempo(now) {
+    this._onsets = this._onsets.filter((o) => now - o < 12);
+    const onsets = this._onsets;
+    if (onsets.length < 4) {
+      this.bpmConfidence = 0;
+      if (onsets.length === 0) this.bpm = 0;
+      return;
+    }
+
+    const intervals = [];
+    for (let i = 1; i < onsets.length; i++) {
+      const d1 = onsets[i] - onsets[i - 1];
+      if (d1 > 0.2 && d1 < 4) intervals.push(d1);
+      if (i >= 2) {
+        const d2 = onsets[i] - onsets[i - 2];
+        if (d2 > 0.2 && d2 < 4) intervals.push(d2);
+      }
+    }
+    if (intervals.length < 3) return;
+
+    // Fold into [60/180, 60/70] seconds — the octave a two-step lives in
+    const folded = intervals.map((d) => {
+      while (d < 60 / 180) d *= 2;
+      while (d > 60 / 70) d /= 2;
+      return d;
+    });
+
+    let best = 0;
+    let bestScore = 0;
+    for (const center of folded) {
+      let score = 0;
+      let sum = 0;
+      for (const f of folded) {
+        if (Math.abs(f - center) / center < 0.06) {
+          score++;
+          sum += f;
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = sum / score;
+      }
+    }
+
+    if (bestScore >= Math.max(3, folded.length * 0.3)) {
+      // Blend toward the new estimate — quick enough to track tempo changes,
+      // smooth enough not to jitter the dancers
+      this.beatInterval += (best - this.beatInterval) * 0.5;
+      this.bpm = 60 / this.beatInterval;
+      this.bpmConfidence = Math.min(1, bestScore / folded.length);
+    } else {
+      this.bpmConfidence *= 0.5;
+    }
   }
 }

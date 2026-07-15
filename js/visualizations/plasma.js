@@ -22,8 +22,10 @@ export class PsychedelicFeedback {
     const b = this.bctx;
 
     // Feedback pass: copy last frame into itself, zoomed + rotated.
-    // Beat pulses kick the zoom so the whole tunnel "breathes" with the music.
-    const zoom = 1.012 + audio.beatPulse * 0.03 + audio.bass * 0.01;
+    // The zoom breathes with the beat PHASE, so the tunnel pumps at the
+    // actual tempo — surging on each beat and relaxing until the next.
+    const pump = Math.pow(1 - Math.min(1, audio.beatPhase), 2);
+    const zoom = 1.010 + pump * 0.028 + audio.bass * 0.008;
     if (audio.beat && Math.random() < 0.25) this.spin = -this.spin; // occasional direction flip
     const rot = this.spin * (1 + audio.mid * 3);
 

@@ -172,6 +172,33 @@ html, body {
   transition: height 0.05s linear;
 }
 
+/* ---------- BPM readout ---------- */
+
+#bpm-display {
+  position: fixed;
+  top: 1.2rem;
+  right: 1.4rem;
+  z-index: 10;
+  text-align: right;
+  color: #fff;
+  text-shadow: 0 0 14px rgba(0, 255, 204, 0.8);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  transform-origin: top right;
+}
+
+#bpm-value {
+  font-size: 2.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.bpm-unit {
+  font-size: 0.9rem;
+  color: #9fd;
+  letter-spacing: 0.2em;
+}
+
 /* ---------- Viz title flash ---------- */
 
 #viz-title {

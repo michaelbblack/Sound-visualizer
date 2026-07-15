@@ -15,7 +15,8 @@ export class RadialBurst {
     const spikes = 180;
     const usable = Math.floor(audio.freq.length * 0.6);
 
-    this.rot += dt * (0.15 + audio.mid * 0.8);
+    // Rotation is tempo-locked: one full turn every 16 beats, plus a mid-driven drift
+    this.rot += dt * (0.1 + audio.mid * 0.5) + dt * ((Math.PI * 2) / (16 * audio.beatInterval));
 
     for (let i = 0; i < spikes; i++) {
       const bin = Math.floor(Math.pow(i / spikes, 1.4) * usable);

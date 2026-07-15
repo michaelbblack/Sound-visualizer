@@ -7,6 +7,7 @@ import { BeatParticles } from './visualizations/particles.js';
 import { StarfieldWarp } from './visualizations/tunnel.js';
 import { ToonTwoStep } from './visualizations/dancers.js';
 import { GifTwoStep } from './visualizations/gifdance.js';
+import { PulseRings } from './visualizations/pulserings.js';
 
 const canvas = document.getElementById('viz-canvas');
 const ctx = canvas.getContext('2d');
@@ -19,6 +20,7 @@ const visualizations = [
   new PsychedelicFeedback(),
   new BeatParticles(),
   new StarfieldWarp(),
+  new PulseRings(),
   new GifTwoStep(),
   new ToonTwoStep(),
 ];
@@ -40,6 +42,14 @@ const vizSelect = document.getElementById('viz-select');
 const vizTitle = document.getElementById('viz-title');
 const sensitivity = document.getElementById('sensitivity');
 const levelFill = document.getElementById('level-fill');
+const bpmDisplay = document.getElementById('bpm-display');
+const bpmValue = document.getElementById('bpm-value');
+
+let bpmVisible = false;
+function toggleBpm() {
+  bpmVisible = !bpmVisible;
+  bpmDisplay.classList.toggle('hidden', !bpmVisible);
+}
 
 visualizations.forEach((v, i) => {
   const opt = document.createElement('option');
@@ -73,6 +83,7 @@ function toggleFullscreen() {
   else document.documentElement.requestFullscreen().catch(() => {});
 }
 document.getElementById('fullscreen-btn').addEventListener('click', toggleFullscreen);
+document.getElementById('bpm-btn').addEventListener('click', toggleBpm);
 canvas.addEventListener('dblclick', toggleFullscreen);
 
 // ---------- keyboard ----------
@@ -83,6 +94,7 @@ document.addEventListener('keydown', (e) => {
     case 'ArrowRight': setVisualization(current + 1); break;
     case 'ArrowLeft': setVisualization(current - 1); break;
     case 'f': case 'F': toggleFullscreen(); break;
+    case 'b': case 'B': toggleBpm(); break;
     case 'h': case 'H':
       controlsHidden = !controlsHidden;
       controls.classList.toggle('hidden', controlsHidden);
@@ -146,6 +158,13 @@ function frame() {
   if (audio.analyser) {
     audio.update(now);
     levelFill.style.height = `${Math.min(100, audio.rms * 320)}%`;
+    if (bpmVisible) {
+      bpmValue.textContent =
+        audio.bpm > 0 && audio.bpmConfidence > 0.15 ? String(Math.round(audio.bpm)) : '--';
+      // subtle pulse on the beat so you can eyeball the lock
+      bpmDisplay.style.transform = `scale(${1 + audio.beatPulse * 0.12})`;
+      bpmDisplay.style.opacity = String(0.55 + Math.min(0.45, audio.bpmConfidence));
+    }
     visualizations[current].draw({
       ctx,
       audio,

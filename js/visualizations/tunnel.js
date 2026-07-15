@@ -21,7 +21,9 @@ export class StarfieldWarp {
 
     const cx = w / 2;
     const cy = h / 2;
-    const speed = 0.12 + audio.level * 1.2 + audio.beatPulse * 2.2;
+    // Warp speed surges on each beat and eases off before the next (tempo-locked)
+    const pump = Math.pow(1 - Math.min(1, audio.beatPhase), 2);
+    const speed = 0.12 + audio.level * 1.2 + pump * 2.2;
     const focal = Math.min(w, h) * 0.9;
 
     for (const s of this.stars) {
