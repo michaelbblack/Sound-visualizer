@@ -133,7 +133,10 @@ export class MemeCycle {
       this.sinceBeat = 0;
       this.beatsOnMeme++;
       if (this.memes.length > 1 && this.beatsOnMeme >= this.memes[this.idx].beats) {
-        this.idx = (this.idx + 1) % this.memes.length;
+        // random order, never the same meme twice in a row
+        let next = this.idx;
+        while (next === this.idx) next = Math.floor(Math.random() * this.memes.length);
+        this.idx = next;
         this.beatsOnMeme = 0;
         this.beatPos = 0;
         this.lastFrac = 0;

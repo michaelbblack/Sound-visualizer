@@ -28,8 +28,8 @@ No mic handy? **Demo Mode** plays a built-in synth beat instead.
 | 5 | Beat Fireworks | Particle bursts on every detected beat |
 | 6 | Starfield Warp | Hyperspace star streaks, speed follows the music |
 | 7 | Pulse Rings (BPM) | Beat-emitted rings paced to the bar, metronome core with a live BPM readout |
-| 8 | Meme Cycle | Rotates through a playlist of animated meme GIFs, each beat-scrubbed, cutting between them on the beat; pauses when the music stops |
-| 9 | Toon Dancers (3D) | Three chunky 3D cartoon dancers two-stepping on beat, disco floor + mirror ball |
+| 8 | Meme Cycle | Rotates through a playlist of animated meme GIFs in random order, each beat-scrubbed, cutting between them on the beat; pauses when the music stops |
+| 9 | Silhouette Rave | A jet-black crowd bouncing, fist-pumping, and jumping on the beat against blazing color walls, tempo-locked lasers, downbeat strobes |
 
 ## Controls
 
@@ -38,6 +38,7 @@ No mic handy? **Demo Mode** plays a built-in synth beat instead.
 | `←` / `→` | Previous / next visualization |
 | `1`–`9` | Jump to a visualization |
 | `B` | Toggle the live BPM readout overlay |
+| `S` | Shuffle mode: hop to a random visualization every 16 bars |
 | `F` or double-click | Toggle fullscreen |
 | `H` | Hide/show the control bar |
 | Sensitivity slider | Boost or tame the response for quiet/loud rooms |
@@ -65,9 +66,9 @@ The control bar and cursor auto-hide after 3 seconds of no mouse movement.
   into independent frames, then *scrubbed* to the beat: each loop is pinned to
   an even number of beats and each beat advances it by exactly one beat's
   worth, so footfalls stay on rhythm even as tempo drifts. Each meme holds
-  for its `beats` count, then the next beat hard-cuts to the next meme.
+  for its `beats` count, then the next beat hard-cuts to a random other meme.
   Animated GIFs only — single-frame files are skipped with a console
   warning. **Add your own:** drop an animated GIF into `assets/memes/` and
   add a line to `playlist.json`.
-- The Toon Dancers scene uses a tiny hand-rolled 3D pipeline (perspective
-  projection + painter's-algorithm depth sort) — no WebGL or libraries.
+- Shuffle mode (`S` or the control-bar button) hops to a random visualization
+  every 64 beats — 16 bars — with a 40s fallback when no beats are detected.

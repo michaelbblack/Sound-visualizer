@@ -5,7 +5,7 @@ import { RadialBurst } from './visualizations/radial.js';
 import { PsychedelicFeedback } from './visualizations/plasma.js';
 import { BeatParticles } from './visualizations/particles.js';
 import { StarfieldWarp } from './visualizations/tunnel.js';
-import { ToonTwoStep } from './visualizations/dancers.js';
+import { SilhouetteRave } from './visualizations/dancers.js';
 import { MemeCycle } from './visualizations/gifdance.js';
 import { PulseRings } from './visualizations/pulserings.js';
 
@@ -22,7 +22,7 @@ const visualizations = [
   new StarfieldWarp(),
   new PulseRings(),
   new MemeCycle(),
-  new ToonTwoStep(),
+  new SilhouetteRave(),
 ];
 let current = 0;
 
@@ -58,8 +58,34 @@ visualizations.forEach((v, i) => {
   vizSelect.appendChild(opt);
 });
 
+// ---- shuffle mode: hop to a random visualization every 16 bars ----
+let shuffle = false;
+let shuffleBeats = 0;
+let shuffleClock = 0;
+function toggleShuffle() {
+  shuffle = !shuffle;
+  document.getElementById('shuffle-btn').classList.toggle('active', shuffle);
+  shuffleBeats = 0;
+  shuffleClock = 0;
+}
+function shuffleTick(dt) {
+  if (!shuffle) return;
+  if (audio.beat) shuffleBeats++;
+  shuffleClock += dt;
+  // 64 beats = 16 bars (~30s at 128 BPM); clock is the no-beats fallback
+  if (shuffleBeats >= 64 || shuffleClock > 40) {
+    let next = current;
+    while (next === current && visualizations.length > 1) {
+      next = Math.floor(Math.random() * visualizations.length);
+    }
+    setVisualization(next);
+  }
+}
+
 let titleTimer = null;
 function setVisualization(i) {
+  shuffleBeats = 0;
+  shuffleClock = 0;
   current = (i + visualizations.length) % visualizations.length;
   vizSelect.value = current;
   // Clear any residual frame state when switching
@@ -84,6 +110,7 @@ function toggleFullscreen() {
 }
 document.getElementById('fullscreen-btn').addEventListener('click', toggleFullscreen);
 document.getElementById('bpm-btn').addEventListener('click', toggleBpm);
+document.getElementById('shuffle-btn').addEventListener('click', toggleShuffle);
 canvas.addEventListener('dblclick', toggleFullscreen);
 
 // ---------- keyboard ----------
@@ -95,6 +122,7 @@ document.addEventListener('keydown', (e) => {
     case 'ArrowLeft': setVisualization(current - 1); break;
     case 'f': case 'F': toggleFullscreen(); break;
     case 'b': case 'B': toggleBpm(); break;
+    case 's': case 'S': toggleShuffle(); break;
     case 'h': case 'H':
       controlsHidden = !controlsHidden;
       controls.classList.toggle('hidden', controlsHidden);
@@ -157,6 +185,7 @@ function frame() {
 
   if (audio.analyser) {
     audio.update(now);
+    shuffleTick(dt);
     levelFill.style.height = `${Math.min(100, audio.rms * 320)}%`;
     if (bpmVisible) {
       bpmValue.textContent =
