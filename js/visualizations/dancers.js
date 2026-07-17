@@ -39,7 +39,7 @@ function hslToRgb(h, s, l) {
 
 export class SilhouetteRave {
   constructor() {
-    this.name = 'Silhouette Rave';
+    this.name = 'Party Animals';
     this.beatCount = 0;
     this.confetti = [];
     this.post = null;
@@ -60,12 +60,17 @@ export class SilhouetteRave {
           swayOff: Math.random() * Math.PI * 2,
           side: Math.random() < 0.5 ? -1 : 1,
           style: ['pump', 'phone', 'wave', 'pump', 'bob'][Math.floor(Math.random() * 5)],
-          headType: Math.floor(Math.random() * 4), // 0 plain 1 cap 2 ponytail 3 fluffy
+          animal: ['bunny', 'cat', 'bear', 'fox', 'unicorn'][Math.floor(Math.random() * 5)],
         });
       }
       const bumps = [];
       for (let i = 0; i < row.n * 2; i++) {
-        bumps.push({ rx: Math.random(), r: row.s * (0.05 + Math.random() * 0.035), off: Math.random() });
+        bumps.push({
+          rx: Math.random(),
+          r: row.s * (0.05 + Math.random() * 0.035),
+          off: Math.random(),
+          ears: Math.random() < 0.6 ? Math.floor(Math.random() * 2) : -1, // 0 pointy, 1 round
+        });
       }
       return { ...row, ri, people, bumps };
     });
@@ -125,6 +130,7 @@ export class SilhouetteRave {
     this._spots(ctx, w, h, t, hue, swell, audio);
     this._stage(ctx, w, h, t, hue, phase, audio);
     this._beams(ctx, w, h, t, hue, swell, audio, glowX, glowY);
+    this._reflection(ctx, w, h, t);
     this._confetti(ctx, audio, w, h, dt, hue);
 
     if (downbeat && swell > 0.55) {
@@ -238,6 +244,43 @@ export class SilhouetteRave {
     ctx.globalCompositeOperation = 'source-over';
   }
 
+  /**
+   * Wet-floor reflection: the stage, DJ and glow mirror onto a glossy floor
+   * strip in front of the riser. Drawn as horizontal slices with per-slice
+   * wobble (the water-shimmer trick), faded and darkened with distance; the
+   * crowd rows then draw over its lower reaches.
+   */
+  _reflection(ctx, w, h, t) {
+    const floorY = h * 0.615; // front edge of the riser
+    const srcTop = h * 0.3;
+    const srcH = floorY - srcTop;
+    const reflH = srcH * 0.8;
+    const slices = 12;
+    const sliceSrc = srcH / slices;
+    const sliceDst = reflH / slices;
+
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    for (let i = 0; i < slices; i++) {
+      const srcY = floorY - (i + 1) * sliceSrc; // mirrored: walk up the source
+      const dy = floorY + i * sliceDst;
+      const wob = Math.sin(i * 0.85 + t * 2.1) * w * 0.0045 * ((i + 1) / slices);
+      ctx.drawImage(
+        this.scene,
+        0, srcY, this.scene.width, sliceSrc,
+        wob, dy, w, sliceDst + 1
+      );
+    }
+    ctx.globalAlpha = 1;
+    // gloss: darken with distance so the mirror dies into the floor
+    const fade = ctx.createLinearGradient(0, floorY, 0, floorY + reflH);
+    fade.addColorStop(0, 'rgba(6, 4, 14, 0.45)');
+    fade.addColorStop(1, 'rgba(6, 4, 14, 1)');
+    ctx.fillStyle = fade;
+    ctx.fillRect(-w * 0.1, floorY, w * 1.2, reflH + h * 0.06);
+    ctx.restore();
+  }
+
   _confetti(ctx, audio, w, h, dt, hue) {
     if (audio.beat && this.confetti.length < 400) {
       const burst = this.beatCount % 4 === 1 ? 26 : 9;
@@ -325,6 +368,13 @@ export class SilhouetteRave {
     ctx.ellipse(hx, hy, s * 0.155, s * 0.175, 0, 0, Math.PI * 2);
     ctx.fill();
 
+    // big round mouse ears — every rave DJ needs them
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(hx + side * s * 0.18, hy - s * 0.17, s * 0.115, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // headphones: band over the crown + two ear cups
     ctx.lineCap = 'round';
     ctx.strokeStyle = dark;
@@ -399,9 +449,26 @@ export class SilhouetteRave {
       const bx = b.rx * w;
       const r = b.r * h * 0.2;
       const bBob = Math.abs(Math.sin(((phase + b.off) % 1) * Math.PI)) * amp * 0.7;
+      const by = bandY(bx) + r * 0.35 - bBob;
       ctx.beginPath();
-      ctx.arc(bx, bandY(bx) + r * 0.35 - bBob, r, 0, Math.PI * 2);
+      ctx.arc(bx, by, r, 0, Math.PI * 2);
       ctx.fill();
+      if (b.ears === 0) { // pointy
+        for (const d of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(bx + d * r * 0.15, by - r * 0.7);
+          ctx.lineTo(bx + d * r * 0.85, by - r * 1.75);
+          ctx.lineTo(bx + d * r * 1.0, by - r * 0.35);
+          ctx.closePath();
+          ctx.fill();
+        }
+      } else if (b.ears === 1) { // round
+        for (const d of [-1, 1]) {
+          ctx.beginPath();
+          ctx.arc(bx + d * r * 0.75, by - r * 0.8, r * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
     }
 
     ctx.beginPath();
@@ -540,19 +607,58 @@ export class SilhouetteRave {
     ctx.beginPath();
     ctx.ellipse(hx, hy, s * 0.15, s * 0.17, flip * 0.06, 0, Math.PI * 2);
     ctx.fill();
-    if (p.headType === 1) { // cap
+
+    // ---- animal ears/horn: instantly readable in silhouette ----
+    if (p.animal === 'bunny') {
+      // long ears that flop outward on the hit
+      for (const d of [-1, 1]) {
+        ctx.save();
+        ctx.translate(hx + d * s * 0.07, hy - s * 0.12);
+        ctx.rotate(d * (0.16 + pn * 0.3) + flip * 0.05);
+        ctx.beginPath();
+        ctx.ellipse(0, -s * (0.18 - pn * 0.025), s * 0.055, s * (0.2 - pn * 0.035), 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    } else if (p.animal === 'cat') {
+      for (const d of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(hx + d * s * 0.03, hy - s * 0.12);
+        ctx.lineTo(hx + d * s * 0.155, hy - s * 0.31);
+        ctx.lineTo(hx + d * s * 0.17, hy - s * 0.07);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (p.animal === 'bear') {
+      for (const d of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(hx + d * s * 0.13, hy - s * 0.13, s * 0.075, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (p.animal === 'fox') {
+      for (const d of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(hx + d * s * 0.02, hy - s * 0.1);
+        ctx.lineTo(hx + d * s * 0.14, hy - s * 0.4);
+        ctx.lineTo(hx + d * s * 0.19, hy - s * 0.04);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else { // unicorn: horn + small ears
       ctx.beginPath();
-      ctx.ellipse(hx, hy - s * 0.09, s * 0.16, s * 0.095, flip * 0.06, Math.PI, 0);
+      ctx.moveTo(hx - s * 0.04, hy - s * 0.13);
+      ctx.lineTo(hx + flip * s * 0.03, hy - s * 0.43);
+      ctx.lineTo(hx + s * 0.04, hy - s * 0.13);
+      ctx.closePath();
       ctx.fill();
-      ctx.fillRect(hx - (flip > 0 ? -s * 0.02 : s * 0.24), hy - s * 0.12, s * 0.22, s * 0.045);
-    } else if (p.headType === 2) { // ponytail
-      ctx.beginPath();
-      ctx.ellipse(hx - flip * s * 0.17, hy + s * 0.03, s * 0.06, s * 0.12, flip * 0.5, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (p.headType === 3) { // fluffy hair
-      ctx.beginPath();
-      ctx.ellipse(hx, hy - s * 0.06, s * 0.18, s * 0.165, 0, 0, Math.PI * 2);
-      ctx.fill();
+      for (const d of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(hx + d * s * 0.06, hy - s * 0.1);
+        ctx.lineTo(hx + d * s * 0.14, hy - s * 0.24);
+        ctx.lineTo(hx + d * s * 0.16, hy - s * 0.06);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
 
     // ---- arms: centerlines with anatomical radii, filled as one shape ----

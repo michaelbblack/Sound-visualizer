@@ -29,7 +29,7 @@ No mic handy? **Demo Mode** plays a built-in synth beat instead.
 | 6 | Starfield Warp | Hyperspace star streaks, speed follows the music |
 | 7 | Pulse Rings (BPM) | Beat-emitted rings paced to the bar, metronome core with a live BPM readout |
 | 8 | Meme Cycle | Rotates through a playlist of animated meme GIFs in random order, each beat-scrubbed, cutting between them on the beat; pauses when the music stops |
-| 9 | Silhouette Rave | A jet-black crowd bouncing, fist-pumping, and jumping on the beat against blazing color walls, tempo-locked lasers, downbeat strobes |
+| 9 | Party Animals | A silhouette crowd of bunnies, cats, bears, foxes and unicorns raving on the beat — mouse-eared DJ, volumetric god-ray lighting (WebGL), wet-floor reflection, confetti |
 
 ## Controls
 
