@@ -359,19 +359,16 @@ export class SilhouetteRave {
       }
       const ex = (sx + hxnd) / 2 + side * s * 0.14;
       const ey = (sy + hynd) / 2 + (raising ? -s * 0.05 : s * 0.1);
-      ctx.lineWidth = s * 0.125;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(ex, ey);
-      ctx.stroke();
-      ctx.lineWidth = s * 0.095;
-      ctx.beginPath();
-      ctx.moveTo(ex, ey);
-      ctx.lineTo(hxnd, hynd);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(hxnd, hynd, s * 0.065, 0, Math.PI * 2);
-      ctx.fill();
+      const dx = hxnd - ex;
+      const dy = hynd - ey;
+      const L = Math.hypot(dx, dy) || 1;
+      this._limb(ctx, [
+        { x: sx, y: sy, r: s * 0.14 },
+        { x: (sx + ex) / 2, y: (sy + ey) / 2, r: s * 0.108 },
+        { x: ex, y: ey, r: s * 0.085 },
+        { x: hxnd, y: hynd, r: s * 0.062 },
+        { x: hxnd + (dx / L) * s * 0.13, y: hynd + (dy / L) * s * 0.13, r: s * 0.048 },
+      ]);
     }
 
     // booth in front of the DJ, with glowing laptop + deck LEDs
@@ -430,11 +427,18 @@ export class SilhouetteRave {
     const shX = cx + lean * s;
 
     const toGlow = Math.atan2(glowY - shY, glowX - shX);
+    const gx = Math.cos(toGlow);
+    const gy = Math.sin(toGlow);
     const rimD = s * 0.045;
     const rim = `hsla(${hue}, 95%, 68%, 0.4)`;
-    const dark = `hsla(255, 30%, ${row.light}%, 0.97)`;
-    this._body(ctx, p, s, cx + Math.cos(toGlow) * rimD, shX + Math.cos(toGlow) * rimD,
-      waist, shY + Math.sin(toGlow) * rimD, flip, pn, t, rim);
+    // cross-body shading toward the glow: the silhouette reads as a round
+    // form catching spill light, not a flat cutout
+    const dark = ctx.createLinearGradient(shX + gx * s * 0.9, shY + gy * s * 0.9, shX - gx * s * 0.9, shY - gy * s * 0.9);
+    dark.addColorStop(0, `hsla(255, 26%, ${row.light + 5.5}%, 0.97)`);
+    dark.addColorStop(0.55, `hsla(255, 30%, ${row.light}%, 0.97)`);
+    dark.addColorStop(1, `hsla(255, 32%, ${Math.max(1, row.light - 2)}%, 0.97)`);
+    this._body(ctx, p, s, cx + gx * rimD, shX + gx * rimD,
+      waist, shY + gy * rimD, flip, pn, t, rim);
     this._body(ctx, p, s, cx, shX, waist, shY, flip, pn, t, dark);
 
     if (p.style === 'phone') {
@@ -451,88 +455,161 @@ export class SilhouetteRave {
     }
   }
 
-  /** One silhouette pass: tapered torso, neck, shaped head, two-width arms. */
+  /**
+   * Tapered limb: a centerline of {x, y, r} points filled as one polygon —
+   * deltoid tapering through elbow to wrist with no joint circles, ending in
+   * a mitt-shaped hand. This is what kills the popsicle-stick look.
+   */
+  _limb(ctx, pts) {
+    const n = pts.length;
+    const left = [];
+    const right = [];
+    for (let i = 0; i < n; i++) {
+      const p = pts[i];
+      let dx;
+      let dy;
+      if (i === 0) {
+        dx = pts[1].x - p.x;
+        dy = pts[1].y - p.y;
+      } else if (i === n - 1) {
+        dx = p.x - pts[i - 1].x;
+        dy = p.y - pts[i - 1].y;
+      } else {
+        dx = pts[i + 1].x - pts[i - 1].x;
+        dy = pts[i + 1].y - pts[i - 1].y;
+      }
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      left.push([p.x + nx * p.r, p.y + ny * p.r]);
+      right.push([p.x - nx * p.r, p.y - ny * p.r]);
+    }
+    ctx.beginPath();
+    ctx.moveTo(left[0][0], left[0][1]);
+    for (let i = 1; i < n; i++) {
+      const mx = (left[i - 1][0] + left[i][0]) / 2;
+      const my = (left[i - 1][1] + left[i][1]) / 2;
+      ctx.quadraticCurveTo(left[i - 1][0], left[i - 1][1], mx, my);
+    }
+    ctx.lineTo(left[n - 1][0], left[n - 1][1]);
+    // rounded tip: bow out past the last point
+    const tip = pts[n - 1];
+    const prev = pts[n - 2];
+    const tl = Math.hypot(tip.x - prev.x, tip.y - prev.y) || 1;
+    const ex = tip.x + ((tip.x - prev.x) / tl) * tip.r * 1.4;
+    const ey = tip.y + ((tip.y - prev.y) / tl) * tip.r * 1.4;
+    ctx.quadraticCurveTo(ex, ey, right[n - 1][0], right[n - 1][1]);
+    for (let i = n - 2; i >= 0; i--) {
+      const mx = (right[i + 1][0] + right[i][0]) / 2;
+      const my = (right[i + 1][1] + right[i][1]) / 2;
+      ctx.quadraticCurveTo(right[i + 1][0], right[i + 1][1], mx, my);
+    }
+    ctx.lineTo(right[0][0], right[0][1]);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** One silhouette pass: anatomical torso outline + tapered filled arms. */
   _body(ctx, p, s, cx, shX, waist, shY, flip, pn, t, color) {
     ctx.fillStyle = color;
-    ctx.strokeStyle = color;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
 
+    // ---- torso: one closed outline — lats up to the armpits, deltoid
+    // bulges, trapezius sloping into the neck (no shoulder "shelf") ----
     ctx.beginPath();
-    ctx.moveTo(cx - s * 0.26, waist);
-    ctx.quadraticCurveTo(shX - s * 0.36, shY + s * 0.28, shX - s * 0.3, shY + s * 0.02);
-    ctx.quadraticCurveTo(shX - s * 0.18, shY - s * 0.12, shX, shY - s * 0.1);
-    ctx.quadraticCurveTo(shX + s * 0.18, shY - s * 0.12, shX + s * 0.3, shY + s * 0.02);
-    ctx.quadraticCurveTo(shX + s * 0.36, shY + s * 0.28, cx + s * 0.26, waist);
+    ctx.moveTo(cx - s * 0.3, waist);
+    ctx.quadraticCurveTo(shX - s * 0.34, shY + s * 0.34, shX - s * 0.28, shY + s * 0.12); // left lat
+    ctx.quadraticCurveTo(shX - s * 0.37, shY + s * 0.02, shX - s * 0.3, shY - s * 0.07);  // left deltoid
+    ctx.quadraticCurveTo(shX - s * 0.18, shY - s * 0.13, shX - s * 0.07, shY - s * 0.155); // left trapezius
+    ctx.quadraticCurveTo(shX, shY - s * 0.165, shX + s * 0.07, shY - s * 0.155);           // neck base
+    ctx.quadraticCurveTo(shX + s * 0.18, shY - s * 0.13, shX + s * 0.3, shY - s * 0.07);  // right trapezius
+    ctx.quadraticCurveTo(shX + s * 0.37, shY + s * 0.02, shX + s * 0.28, shY + s * 0.12); // right deltoid
+    ctx.quadraticCurveTo(shX + s * 0.34, shY + s * 0.34, cx + s * 0.3, waist);            // right lat
     ctx.closePath();
     ctx.fill();
 
+    // ---- neck column + head (hair merged into the silhouette) ----
     const hx = shX + flip * pn * s * 0.06;
-    const hy = shY - s * 0.34 - pn * s * 0.04;
-    ctx.fillRect(hx - s * 0.07, shY - s * 0.22, s * 0.14, s * 0.14);
+    const hy = shY - s * 0.36 - pn * s * 0.04;
     ctx.beginPath();
-    ctx.ellipse(hx, hy, s * 0.145, s * 0.165, flip * 0.08, 0, Math.PI * 2);
+    ctx.moveTo(hx - s * 0.09, shY - s * 0.13);
+    ctx.lineTo(hx - s * 0.07, hy + s * 0.06);
+    ctx.lineTo(hx + s * 0.07, hy + s * 0.06);
+    ctx.lineTo(hx + s * 0.09, shY - s * 0.13);
+    ctx.closePath();
     ctx.fill();
-    if (p.headType === 1) {
+    ctx.beginPath();
+    ctx.ellipse(hx, hy, s * 0.15, s * 0.17, flip * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+    if (p.headType === 1) { // cap
       ctx.beginPath();
-      ctx.ellipse(hx, hy - s * 0.09, s * 0.155, s * 0.09, flip * 0.08, Math.PI, 0);
+      ctx.ellipse(hx, hy - s * 0.09, s * 0.16, s * 0.095, flip * 0.06, Math.PI, 0);
       ctx.fill();
       ctx.fillRect(hx - (flip > 0 ? -s * 0.02 : s * 0.24), hy - s * 0.12, s * 0.22, s * 0.045);
-    } else if (p.headType === 2) {
+    } else if (p.headType === 2) { // ponytail
       ctx.beginPath();
-      ctx.ellipse(hx - flip * s * 0.16, hy + s * 0.02, s * 0.06, s * 0.11, flip * 0.5, 0, Math.PI * 2);
+      ctx.ellipse(hx - flip * s * 0.17, hy + s * 0.03, s * 0.06, s * 0.12, flip * 0.5, 0, Math.PI * 2);
       ctx.fill();
-    } else if (p.headType === 3) {
+    } else if (p.headType === 3) { // fluffy hair
       ctx.beginPath();
-      ctx.ellipse(hx, hy - s * 0.06, s * 0.175, s * 0.16, 0, 0, Math.PI * 2);
+      ctx.ellipse(hx, hy - s * 0.06, s * 0.18, s * 0.165, 0, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    const upper = s * 0.115;
-    const fore = s * 0.085;
-    const arm = (sx, sy, ex, ey, wx, wy) => {
-      ctx.lineWidth = upper;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(ex, ey);
-      ctx.stroke();
-      ctx.lineWidth = fore;
-      ctx.beginPath();
-      ctx.moveTo(ex, ey);
-      ctx.lineTo(wx, wy);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(wx, wy, fore * 0.62, 0, Math.PI * 2);
-      ctx.fill();
+    // ---- arms: centerlines with anatomical radii, filled as one shape ----
+    // shoulder joint sits inside the deltoid so the arm grows out of the
+    // torso mass with no seam
+    const armPts = (sh, elbow, wrist, curl) => {
+      const dx = wrist.x - elbow.x;
+      const dy = wrist.y - elbow.y;
+      const L = Math.hypot(dx, dy) || 1;
+      const hand = {
+        x: wrist.x + (dx / L) * s * 0.14 - (dy / L) * curl * s * 0.05,
+        y: wrist.y + (dy / L) * s * 0.14 + (dx / L) * curl * s * 0.05,
+        r: s * 0.045,
+      };
+      return [
+        { x: sh.x, y: sh.y, r: s * 0.13 },
+        { x: (sh.x + elbow.x) / 2, y: (sh.y + elbow.y) / 2, r: s * 0.1 }, // bicep
+        { x: elbow.x, y: elbow.y, r: s * 0.078 },
+        { x: wrist.x, y: wrist.y, r: s * 0.058 },
+        hand,
+      ];
     };
 
-    const sL = { x: shX - s * 0.27, y: shY + s * 0.02 };
-    const sR = { x: shX + s * 0.27, y: shY + s * 0.02 };
+    const sL = { x: shX - s * 0.24, y: shY + s * 0.03 };
+    const sR = { x: shX + s * 0.24, y: shY + s * 0.03 };
     if (p.style === 'pump') {
       // the fist travels a real arc: chest-height at rest, full extension on the hit
       const f = flip > 0 ? sR : sL;
       const o = flip > 0 ? sL : sR;
-      const wx = f.x + flip * s * (0.3 - pn * 0.12);
-      const wy = f.y - s * (0.1 + pn * 0.75);
-      arm(f.x, f.y, f.x + flip * s * 0.2, f.y - s * (0.05 + pn * 0.3), wx, wy);
-      arm(o.x, o.y, o.x - flip * s * 0.12, o.y + s * 0.16, o.x + flip * s * 0.12, o.y - s * 0.05);
+      this._limb(ctx, armPts(f,
+        { x: f.x + flip * s * 0.22, y: f.y - s * (0.02 + pn * 0.28) },
+        { x: f.x + flip * s * (0.28 - pn * 0.12), y: f.y - s * (0.12 + pn * 0.68) }, flip));
+      this._limb(ctx, armPts(o,
+        { x: o.x - flip * s * 0.12, y: o.y + s * 0.18 },
+        { x: o.x + flip * s * 0.12, y: o.y - s * 0.02 }, -flip));
     } else if (p.style === 'wave') {
       for (const [sh, dir] of [[sL, -1], [sR, 1]]) {
         const wave = Math.sin(t * 2.6 + p.swayOff + dir) * s * 0.2;
-        arm(sh.x, sh.y, sh.x + dir * s * 0.22, sh.y - s * 0.3, sh.x + dir * s * 0.18 + wave, sh.y - s * (0.55 + pn * 0.2));
+        this._limb(ctx, armPts(sh,
+          { x: sh.x + dir * s * 0.24, y: sh.y - s * 0.26 },
+          { x: sh.x + dir * s * 0.16 + wave, y: sh.y - s * (0.52 + pn * 0.2) }, dir));
       }
     } else if (p.style === 'phone') {
       const f = flip > 0 ? sR : sL;
       const o = flip > 0 ? sL : sR;
-      arm(f.x, f.y, f.x + flip * s * 0.15, f.y - s * 0.34, shX + flip * s * 0.34, shY - s * (0.72 + pn * 0.06));
-      ctx.lineWidth = upper;
-      ctx.beginPath();
-      ctx.moveTo(o.x, o.y);
-      ctx.lineTo(o.x - flip * s * 0.08, o.y + s * 0.35);
-      ctx.stroke();
+      this._limb(ctx, armPts(f,
+        { x: f.x + flip * s * 0.17, y: f.y - s * 0.3 },
+        { x: shX + flip * s * 0.33, y: shY - s * (0.68 + pn * 0.06) }, 0));
+      this._limb(ctx, armPts(o,
+        { x: o.x - flip * s * 0.02, y: o.y + s * 0.22 },
+        { x: o.x - flip * s * 0.06, y: o.y + s * 0.4 }, 0));
     } else {
+      // 'bob': hands grooving at the chest, elbows out
       for (const [sh, dir] of [[sL, -1], [sR, 1]]) {
-        arm(sh.x, sh.y, sh.x + dir * s * 0.2, sh.y + s * 0.2, shX + dir * s * 0.1, sh.y + s * (0.1 - pn * 0.22));
+        this._limb(ctx, armPts(sh,
+          { x: sh.x + dir * s * 0.22, y: sh.y + s * 0.18 },
+          { x: shX + dir * s * 0.12, y: sh.y + s * (0.12 - pn * 0.24) }, -dir));
       }
     }
   }
