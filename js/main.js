@@ -8,6 +8,7 @@ import { StarfieldWarp } from './visualizations/tunnel.js';
 import { SilhouetteRave } from './visualizations/dancers.js';
 import { MemeCycle } from './visualizations/gifdance.js';
 import { PulseRings } from './visualizations/pulserings.js';
+import { SpectreBloom } from './visualizations/spectre.js';
 
 const canvas = document.getElementById('viz-canvas');
 const ctx = canvas.getContext('2d');
@@ -23,6 +24,7 @@ const visualizations = [
   new PulseRings(),
   new MemeCycle(),
   new SilhouetteRave(),
+  new SpectreBloom(),
 ];
 let current = 0;
 
@@ -128,8 +130,8 @@ document.addEventListener('keydown', (e) => {
       controls.classList.toggle('hidden', controlsHidden);
       break;
     default: {
-      // Number keys jump straight to a visualization
-      const n = Number(e.key);
+      // Number keys jump straight to a visualization (0 = tenth)
+      const n = e.key === '0' ? 10 : Number(e.key);
       if (n >= 1 && n <= visualizations.length) setVisualization(n - 1);
     }
   }

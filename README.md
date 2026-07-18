@@ -30,13 +30,14 @@ No mic handy? **Demo Mode** plays a built-in synth beat instead.
 | 7 | Pulse Rings (BPM) | Beat-emitted rings paced to the bar, metronome core with a live BPM readout |
 | 8 | Meme Cycle | Rotates through a playlist of animated meme GIFs in random order, each beat-scrubbed, cutting between them on the beat; pauses when the music stops |
 | 9 | Party Animals | A silhouette crowd of bunnies, cats, bears, foxes and unicorns raving on the beat — mouse-eared DJ, volumetric god-ray lighting (WebGL), wet-floor reflection, confetti |
+| 10 | Spectre Diffraction Bloom | Flight over a real Spectre aperiodic tiling (2023 monotile, true substitution rules) morphing into its computed Fourier diffraction pattern — Bragg peaks stream past as a star tunnel; key `0` |
 
 ## Controls
 
 | Input | Action |
 |-------|--------|
 | `←` / `→` | Previous / next visualization |
-| `1`–`9` | Jump to a visualization |
+| `1`–`9`, `0` | Jump to a visualization (`0` = tenth) |
 | `B` | Toggle the live BPM readout overlay |
 | `S` | Shuffle mode: hop to a random visualization every 16 bars |
 | `F` or double-click | Toggle fullscreen |
