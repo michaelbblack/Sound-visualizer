@@ -79,7 +79,7 @@ export class MemeCycle {
   _beatsPerLoop(meme, beatInterval) {
     let best = 2;
     let bestErr = Infinity;
-    for (const k of [2, 4, 6, 8, 10, 12]) {
+    for (const k of [2, 4, 6, 8, 10, 12, 16, 20, 24, 32]) {
       const err = Math.abs(meme.duration - k * beatInterval);
       if (err < bestErr) {
         bestErr = err;
