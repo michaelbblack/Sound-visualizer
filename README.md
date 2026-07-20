@@ -22,7 +22,7 @@ No mic handy? **Demo Mode** plays a built-in synth beat instead.
 | # | Name | Vibe |
 |---|------|------|
 | 1 | Spectrum Bars (Classic) | Green-to-red LED analyzer with falling peak caps |
-| 2 | Oscilloscope | Neon glowing waveform trace |
+| 2 | Oscilloscope | Neon waveform ribbons flying through 3D space — older traces recede, twist and dissipate down a tunnel |
 | 3 | Radial Burst | Spectrum fan around a pulsing waveform ring |
 | 4 | Psychedelic Feedback | Milkdrop-style zoom/rotate feedback tunnel |
 | 5 | Beat Fireworks | Particle bursts on every detected beat |
