@@ -34,6 +34,10 @@ export class AudioEngine {
     this.sensitivity = 1;
     this.autoGain = 1;
     this.rms = 0;
+    this.noiseFloor = 0.003;
+    this.presence = 0;
+    this._fluxAvg = 0;
+    this._startT = 0;
 
     this.bass = 0;
     this.mid = 0;
@@ -183,7 +187,20 @@ export class AudioEngine {
 
     this.analyser.getByteFrequencyData(this.freq);
     this.analyser.getByteTimeDomainData(this.wave);
-    this._autoGain(dt);
+
+    // Flux is measured on RAW data (before the noise gate) so returning
+    // music can always reopen the gate
+    const flux = this._spectralFlux();
+    this._fluxAvg += (flux.full - this._fluxAvg) * Math.min(1, 2 * dt);
+    this._autoGain(dt, now);
+
+    // Noise gate: near the learned noise floor the output is squelched, so
+    // an amplified quiet room renders as the near-silence it actually is
+    const g = this.presence * this.presence;
+    if (g < 0.995) {
+      for (let i = 0; i < this.freq.length; i++) this.freq[i] = this.freq[i] * g;
+      for (let i = 0; i < this.wave.length; i++) this.wave[i] = 128 + (this.wave[i] - 128) * g;
+    }
 
     this.bass = this._smooth(this.bass, this._bandLevel(0, 0.04), dt);
     this.mid = this._smooth(this.mid, this._bandLevel(0.04, 0.25), dt);
@@ -191,7 +208,6 @@ export class AudioEngine {
     this.level = this._smooth(this.level, this._bandLevel(0, 0.8), dt);
 
     // Onset-strength envelope sample for this frame
-    const flux = this._spectralFlux();
     this._envT.push(now);
     this._envV.push(flux.full);
     while (this._envT.length && now - this._envT[0] > 8) {
@@ -213,12 +229,18 @@ export class AudioEngine {
   }
 
   /**
-   * Automatic gain control: real microphones (especially on phones) deliver a
-   * far quieter signal than line-level audio, so we amplify BEFORE the
-   * analyser and keep adapting until the waveform sits at a healthy level.
-   * The sensitivity slider steers the target loudness, not a raw multiplier.
+   * Automatic gain control with an adaptive noise gate.
+   *
+   * Real microphones deliver far quieter signal than line level, so we
+   * amplify BEFORE the analyser — but a naive AGC will happily amplify a
+   * quiet room's noise up to music level. The fix: track the input's noise
+   * floor in PRE-GAIN terms (gain-invariant), and only treat the input as
+   * signal when it rises meaningfully above that floor. The floor learns
+   * downward instantly and upward only while the spectrum is static
+   * (no flux = no music), so long loud sets can't corrupt it.
+   * `presence` (0..1) gates both AGC ramp-up and the rendered output.
    */
-  _autoGain(dt) {
+  _autoGain(dt, now) {
     const wave = this.wave;
     let sum = 0;
     for (let i = 0; i < wave.length; i += 4) {
@@ -227,16 +249,32 @@ export class AudioEngine {
     }
     this.rms = Math.sqrt(sum / (wave.length / 4));
 
+    // ---- adaptive noise floor (pre-gain, so AGC state doesn't skew it) ----
+    if (!this._startT) this._startT = now;
+    const pre = this.rms / Math.max(0.25, this.autoGain);
+    const fluxQuiet = this._fluxAvg < 0.0025;
+    let rate;
+    if (pre < this.noiseFloor) rate = 3; // downward: learn fast
+    else if (fluxQuiet) rate = now - this._startT < 8 ? 1.2 : 0.08; // steady non-music: creep up
+    else rate = 0.002; // music playing: hold
+    this.noiseFloor += (pre - this.noiseFloor) * Math.min(1, rate * dt);
+    this.noiseFloor = Math.min(0.2, Math.max(2e-5, this.noiseFloor));
+
+    // presence: 0 at <2.2x floor, 1 at >4.7x floor
+    const targetP = Math.max(0, Math.min(1, (pre / this.noiseFloor - 2.2) / 2.5));
+    const pRate = targetP > this.presence ? 5 : 1.2;
+    this.presence += (targetP - this.presence) * Math.min(1, pRate * dt);
+
     const target = 0.2 * this.sensitivity;
-    const noiseFloor = 0.006; // don't amplify silence into a light show
-    if (this.rms > noiseFloor) {
+    if (this.rms > 0.004) {
       const desired = Math.min(64, Math.max(0.25, this.autoGain * (target / this.rms)));
-      // ramp up gently, back off fast when the signal gets hot (avoids pumping)
-      const rate = desired > this.autoGain ? 0.5 : 4.0;
-      this.autoGain += (desired - this.autoGain) * Math.min(1, rate * dt);
-      this.input.gain.setTargetAtTime(this.autoGain, this.ctx.currentTime, 0.1);
+      // ramp up only for real signal; always allow backing off a hot input
+      if (desired < this.autoGain || this.presence > 0.3) {
+        const rate2 = desired > this.autoGain ? 0.5 : 4.0;
+        this.autoGain += (desired - this.autoGain) * Math.min(1, rate2 * dt);
+        this.input.gain.setTargetAtTime(this.autoGain, this.ctx.currentTime, 0.1);
+      }
     }
-    // below the floor: freeze the gain so returning music is picked up instantly
   }
 
   _bandLevel(fromFrac, toFrac) {
@@ -296,7 +334,7 @@ export class AudioEngine {
       count++;
     }
     const recent = count ? sum / count : 0;
-    if (recent > 0.002 && this.rms > 0.04) this._lastAudible = now;
+    if (recent > 0.002 && this.rms > 0.04 && this.presence > 0.2) this._lastAudible = now;
     this.musicActive = now - this._lastAudible < 1.2;
   }
 
