@@ -34,6 +34,7 @@ uniform float uRippleFreq;
 uniform float uShear;
 uniform float uDecay;
 uniform float uTime;
+uniform vec2 uAdvect;
 uniform mat3 uHue;
 
 void main() {
@@ -47,6 +48,7 @@ void main() {
   vec2 q = vec2(cos(a), sin(a)) * rr / uAspect + uCenter;
   q.x += uShear * sin(q.y * 11.0 + uTime * 0.8) * 0.004;
   q.y += uShear * sin(q.x * 13.0 - uTime * 0.7) * 0.004;
+  q -= uAdvect; // constant drift: sampling upstream makes content flow +uAdvect
 
   vec3 prev = uHue * texture2D(uPrev, q).rgb;
 
@@ -120,7 +122,7 @@ export class WarpEngine {
 
     this.u = {};
     for (const name of ['uPrev', 'uInk', 'uCenter', 'uAspect', 'uZoom', 'uRot', 'uSwirl', 'uSwirlFreq',
-      'uRipple', 'uRippleFreq', 'uShear', 'uDecay', 'uTime', 'uHue']) {
+      'uRipple', 'uRippleFreq', 'uShear', 'uDecay', 'uTime', 'uAdvect', 'uHue']) {
       this.u[name] = gl.getUniformLocation(this.warpProg, name);
     }
     this.uDispTex = gl.getUniformLocation(this.dispProg, 'uTex');
@@ -199,6 +201,7 @@ export class WarpEngine {
     gl.uniform1f(this.u.uShear, p.shear);
     gl.uniform1f(this.u.uDecay, p.decay);
     gl.uniform1f(this.u.uTime, p.time);
+    gl.uniform2f(this.u.uAdvect, p.advectX || 0, p.advectY || 0);
     gl.uniformMatrix3fv(this.u.uHue, false, p.hueMat);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 

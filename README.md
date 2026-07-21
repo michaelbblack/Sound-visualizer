@@ -21,7 +21,7 @@ No mic handy? **Demo Mode** plays a built-in synth beat instead.
 
 | # | Name | Vibe |
 |---|------|------|
-| 1 | Spectrum Bars (Classic) | Green-to-red LED analyzer with falling peak caps |
+| 1 | Spectrum Bars (Classic) | Full-width, center-mirrored green-to-red LED analyzer with falling peak caps over a MilkDrop-style warp-feedback aura |
 | 2 | Oscilloscope | Neon waveform ribbons flying through 3D space — older traces recede, twist and dissipate down a tunnel |
 | 3 | Radial Burst | Spectrum fan around a pulsing waveform ring |
 | 4 | Psychedelic Feedback | Milkdrop-style zoom/rotate feedback tunnel |
