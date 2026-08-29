@@ -286,8 +286,12 @@ export class AudioEngine {
     this.presence += (targetP - this.presence) * Math.min(1, pRate * dt);
 
     const target = 0.2 * this.sensitivity;
-    if (this.rms > 0.004) {
-      const desired = Math.min(64, Math.max(0.25, this.autoGain * (target / this.rms)));
+    // Engage relative to the learned floor, not an absolute level: a phone
+    // mic hearing music from across the room sits far below any fixed
+    // threshold that still rejects silence. Amplifying is always safe -
+    // the gate, not the AGC, decides what renders.
+    if (pre > Math.max(1e-4, this.noiseFloor * 1.5)) {
+      const desired = Math.min(128, Math.max(0.25, this.autoGain * (target / Math.max(this.rms, 1e-3))));
       // Ramp freely — amplifying is what makes flux readable, and the gate
       // (not the AGC) decides what renders. Gating the ramp on presence
       // deadlocked quiet mics: no gain -> no flux -> looks like noise ->
@@ -355,7 +359,7 @@ export class AudioEngine {
       count++;
     }
     const recent = count ? sum / count : 0;
-    if (recent > 0.002 && this.rms > 0.04 && this.presence > 0.2) this._lastAudible = now;
+    if (recent > 0.002 && this.rms > 0.02 && this.presence > 0.2) this._lastAudible = now;
     this.musicActive = now - this._lastAudible < 1.2;
   }
 
