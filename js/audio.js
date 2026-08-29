@@ -37,6 +37,8 @@ export class AudioEngine {
     this.noiseFloor = 0.003;
     this.presence = 0;
     this._fluxAvg = 0;
+    this._fluxDev = 0;
+    this._noiseLikeT = 0;
     this._startT = 0;
 
     this.bass = 0;
@@ -192,6 +194,7 @@ export class AudioEngine {
     // music can always reopen the gate
     const flux = this._spectralFlux();
     this._fluxAvg += (flux.full - this._fluxAvg) * Math.min(1, 2 * dt);
+    this._fluxDev += (Math.abs(flux.full - this._fluxAvg) - this._fluxDev) * Math.min(1, 2 * dt);
     this._autoGain(dt, now);
 
     // Noise gate: near the learned noise floor the output is squelched, so
@@ -236,9 +239,15 @@ export class AudioEngine {
    * quiet room's noise up to music level. The fix: track the input's noise
    * floor in PRE-GAIN terms (gain-invariant), and only treat the input as
    * signal when it rises meaningfully above that floor. The floor learns
-   * downward instantly and upward only while the spectrum is static
-   * (no flux = no music), so long loud sets can't corrupt it.
-   * `presence` (0..1) gates both AGC ramp-up and the rendered output.
+   * downward instantly and upward only while the input looks noise-like,
+   * so long loud sets can't corrupt it. `presence` (0..1) gates the
+   * rendered output (never the AGC ramp — see below).
+   *
+   * Noise vs music is decided by flux BURSTINESS, not flux amount: steady
+   * hiss (fan, white noise) actually carries MORE spectral flux than music,
+   * but it is statistically flat, while music's flux arrives in beat-shaped
+   * bursts. The deviation/mean ratio is scale-free, so the test holds at
+   * any AGC gain: measured ~0.13-0.28 for noise, ~0.95-1.5 for music.
    */
   _autoGain(dt, now) {
     const wave = this.wave;
@@ -252,12 +261,23 @@ export class AudioEngine {
     // ---- adaptive noise floor (pre-gain, so AGC state doesn't skew it) ----
     if (!this._startT) this._startT = now;
     const pre = this.rms / Math.max(0.25, this.autoGain);
-    const fluxQuiet = this._fluxAvg < 0.0025;
+    const cv = this._fluxDev / (this._fluxAvg + 1e-5);
+    const noiseLike = this._fluxAvg < 2e-4 || cv < 0.55;
+    // Music's cv dips below the threshold for sub-second moments (between
+    // beats); real noise sits there continuously. Only sustained noiseLike
+    // may raise the floor, so those dips can't ratchet it up mid-song.
+    this._noiseLikeT = noiseLike ? this._noiseLikeT + dt : 0;
     let rate;
     if (pre < this.noiseFloor) rate = 3; // downward: learn fast
-    else if (fluxQuiet) rate = now - this._startT < 8 ? 1.2 : 0.08; // steady non-music: creep up
+    else if (this._noiseLikeT > 1.5) rate = now - this._startT < 8 ? 1.2 : 0.08; // steady non-music: creep up
     else rate = 0.002; // music playing: hold
     this.noiseFloor += (pre - this.noiseFloor) * Math.min(1, rate * dt);
+    // Bursty flux is positive evidence of signal: the floor must sit well
+    // below it, or a floor guessed without ever sampling silence (app
+    // started mid-song on a quiet mic) squelches real music forever.
+    if (!noiseLike && this.noiseFloor > pre / 8) {
+      this.noiseFloor += (pre / 8 - this.noiseFloor) * Math.min(1, 0.7 * dt);
+    }
     this.noiseFloor = Math.min(0.2, Math.max(2e-5, this.noiseFloor));
 
     // presence: 0 at <2.2x floor, 1 at >4.7x floor
@@ -268,12 +288,13 @@ export class AudioEngine {
     const target = 0.2 * this.sensitivity;
     if (this.rms > 0.004) {
       const desired = Math.min(64, Math.max(0.25, this.autoGain * (target / this.rms)));
-      // ramp up only for real signal; always allow backing off a hot input
-      if (desired < this.autoGain || this.presence > 0.3) {
-        const rate2 = desired > this.autoGain ? 0.5 : 4.0;
-        this.autoGain += (desired - this.autoGain) * Math.min(1, rate2 * dt);
-        this.input.gain.setTargetAtTime(this.autoGain, this.ctx.currentTime, 0.1);
-      }
+      // Ramp freely — amplifying is what makes flux readable, and the gate
+      // (not the AGC) decides what renders. Gating the ramp on presence
+      // deadlocked quiet mics: no gain -> no flux -> looks like noise ->
+      // no presence -> no gain.
+      const rate2 = desired > this.autoGain ? 0.5 : 4.0;
+      this.autoGain += (desired - this.autoGain) * Math.min(1, rate2 * dt);
+      this.input.gain.setTargetAtTime(this.autoGain, this.ctx.currentTime, 0.1);
     }
   }
 
