@@ -1,4 +1,6 @@
-import { AudioEngine } from './audio.js';
+// The ?v= query busts stale module caches (iOS Safari keeps module URLs
+// aggressively) - bump it whenever audio.js changes.
+import { AudioEngine } from './audio.js?v=2';
 import { SpectrumBars } from './visualizations/bars.js';
 import { Oscilloscope } from './visualizations/oscilloscope.js';
 import { RadialBurst } from './visualizations/radial.js';
